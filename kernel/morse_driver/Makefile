@@ -30,7 +30,7 @@ DTC=$(wildcard $(LINUX_DIR)/scripts/dtc/dtc)
 define KernelPackage/morse
   SUBMENU:=Wireless Drivers
   TITLE:=Morse Micro WIFI HaLow driver
-  DEPENDS:= +kmod-mmc +kmod-mac80211 +kmod-trelay +kmod-lib-crc7 +morse-fw +morse-board-config +MORSE_USB:kmod-usb-core
+  DEPENDS:= +kmod-mmc +kmod-mac80211 +kmod-trelay +kmod-lib-crc7 +morse-fw +morse-board-config
   FILES:=\
     $(PKG_BUILD_DIR)/morse.ko \
     $(PKG_BUILD_DIR)/dot11ah/dot11ah.ko
