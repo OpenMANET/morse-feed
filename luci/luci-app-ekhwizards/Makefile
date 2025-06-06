@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI Wizards for HaLow evaluation kits
-LUCI_DEPENDS:=+luci-base +luci-app-morseconfig +luci-lib-morseconfig
+LUCI_DEPENDS:=+luci-base +luci-app-morseconfig
 
 PKG_LICENSE:=Apache-2.0
 
