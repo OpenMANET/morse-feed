@@ -15,7 +15,7 @@ morse_wpa_supplicant_prepare_interface() {
 	json_get_vars sae_pwe multi_ap
 	json_get_values sae_group_list sae_group
 
-	[ "${multi_ap:=0}" -lt 1 ] && set_default sae_pwe 1
+	set_default sae_pwe 1
 
 	local pmf=
 	[ "${multi_ap:=0}" -eq 1 ] && pmf=2
@@ -96,7 +96,7 @@ morse_override_hostapd_set_bss_options() {
 	set_default wpa_group_rekey 604800
 	set_default beacon_int 100
 
-	/sbin/hostapd_s1g -vfils || fils=0
+	/usr/sbin/hostapd_s1g -vfils || fils=0
 
 	append bss_conf "ctrl_interface=/var/run/hostapd_s1g"
 	if [ "$isolate" -gt 0 ]; then
@@ -318,6 +318,10 @@ morse_override_hostapd_set_bss_options() {
 	[ "$wps_pushbutton" -gt 0 ] && append config_methods push_button
 	[ "$wps_label" -gt 0 ] && append config_methods label
 	[ "$wps_virtual_push_button" -gt 0 ] && append config_methods virtual_push_button
+
+	# Enable SAE (WPA3-Personal transition mode) automatically for
+	# WPA2-PSK credentials received using WPS.
+	[ "$wps_virtual_push_button" -gt 0 ] && append bss_conf "wps_cred_add_sae=1" "$N"
 
 	# WPS not possible on Multi-AP backhaul-only SSID
 	[ "$multi_ap" = 1 ] && wps_possible=
@@ -820,7 +824,7 @@ morse_override_wpa_supplicant_add_network() {
 	}
 
 	[ "$_w_mode" = "mesh" ] && {
-		json_get_vars mesh_id dtim_period encryption
+		json_get_vars mesh_id encryption
 		[ -n "$mesh_id" ] && ssid="${mesh_id}"
 		[ -n "$mesh_max_peer_links" ] && append mesh_data "max_peer_links=${mesh_max_peer_links}" "$N"
 		[ -n "$mesh_plink_timeout" ] && append mesh_data "mesh_max_inactivity=${mesh_plink_timeout}" "$N"
@@ -832,7 +836,8 @@ morse_override_wpa_supplicant_add_network() {
 		[ -n "$country" ] && append network_data "country=\"$country\"" "$N$T"
 		[ -n "$s1g_prim_chwidth" ] && append network_data "s1g_prim_chwidth=$s1g_prim_chwidth" "$N$T"
 		[ -n "$s1g_prim_1mhz_chan_index" ] && append network_data "s1g_prim_1mhz_chan_index=$s1g_prim_1mhz_chan_index" "$N$T"
-		[ -n "$dtim_period" ] && append network_data "dtim_period=$dtim_period" "$N$T"
+		#SW-13323 - Restrict DTIM period to 1 for mesh
+		append network_data "dtim_period=1" "$N$T"
 
 		[ -n "$mesh_rssi_threshold" ] && append network_data "mesh_rssi_threshold=${mesh_rssi_threshold}" "$N$T"
 		[ -n "$mesh_hwmp_rootmode" ] && append network_data "dot11MeshHWMPRootMode=${mesh_hwmp_rootmode}" "$N$T"
@@ -1117,6 +1122,7 @@ morse_override_wpa_supplicant_add_network() {
 
 	if [ "$multi_ap" -eq 1 ]; then
 		echo "wps_priority=1" >> "$_config"
+		echo "wps_cred_add_sae=1" >> "$_config"
 		echo "update_config=1"  >> "$_config"
 		#Adding obtained wps network credentials here to make it persistent
 		append network_data "proto=RSN" "$N$T"
@@ -1134,8 +1140,10 @@ morse_override_wpa_supplicant_add_network() {
 		echo "dpp_config_processing=0"  >> "$_config"
 		echo "dpp_key=/etc/dpp_key.pem"  >> "$_config"
 		echo "dpp_chirp_forever=1"  >> "$_config"
+	elif [ -n "$ssid" ]; then
+		# Only append a network block if we have an ssid, as otherwise
+		# wpa_supplicant likes scanning and connecting to anything.
 
-	else
 		# If we're a normal mesh or sta on a bridge, it's useful for the MAC address
 		# presented by wpa_supplicant to be the same as the MAC address of the bridge
 		# so any AP/mesh point can easily figure out who we are (i.e. map the MAC

@@ -1,0 +1,3 @@
+config upgrade
+	option user 'morse'
+	option password ' '

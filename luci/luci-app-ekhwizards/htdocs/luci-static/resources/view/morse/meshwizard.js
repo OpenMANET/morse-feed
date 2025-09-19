@@ -24,9 +24,8 @@ return wizard.AbstractWizardView.extend({
 
 	loadWizardOptions() {
 		const {
-			wifiDeviceName,
+			wifiDevices,
 			morseInterfaceName,
-			wifiStaInterfaceName,
 		} = wizard.readSectionInfo();
 
 		const ahwlanZone = morseuci.getZoneForNetwork('ahwlan');
@@ -45,9 +44,16 @@ return wizard.AbstractWizardView.extend({
 				return undefined;
 			} else if (uci.get('mesh11sd', 'mesh_params', 'mesh_gate_announcements') !== '1') {
 				return undefined;
-			} else if (wifiDeviceName && uci.get('wireless', wifiStaInterfaceName) && uci.get('wireless', wifiStaInterfaceName, 'disabled') !== '1') {
-				return 'wifi';
-			} else if (ethDHCPNetwork) {
+			}
+
+			for (const wifiDevice of wifiDevices) {
+				// Return the first device setup as a station as the uplink
+				if (uci.get('wireless', wifiDevice.staInterfaceName) && uci.get('wireless', wifiDevice.staInterfaceName, 'disabled') !== '1') {
+					return `wifi-${wifiDevice.staInterfaceName}`;
+				}
+			}
+
+			if (ethDHCPNetwork) {
 				if (this.ethernetPorts.length > 1) {
 					return `ethernet-${ethDHCPPort}`;
 				} else {
@@ -112,11 +118,9 @@ return wizard.AbstractWizardView.extend({
 		wizard.resetUciNetworkTopology();
 
 		const {
-			wifiDeviceName,
+			wifiDevices,
 			morseInterfaceName,
 			morseMeshApInterfaceName,
-			wifiApInterfaceName,
-			wifiStaInterfaceName,
 			lanIp,
 			wlanIp,
 		} = wizard.readSectionInfo();
@@ -132,15 +136,17 @@ return wizard.AbstractWizardView.extend({
 		const device_mode_meshpoint = uci.get('network', 'wizard', 'device_mode_meshpoint');
 		const uplink = uci.get('network', 'wizard', 'uplink');
 
-		const isWifiAp = wifiDeviceName && uci.get('wireless', wifiApInterfaceName, 'disabled') !== '1';
-
 		let isMeshGate = uci.get('mesh11sd', 'mesh_params', 'mesh_gate_announcements') === '1';
 		let isMeshAp = uci.get('wireless', morseMeshApInterfaceName, 'disabled') !== '1';
 
-		if (wifiDeviceName) {
+		const wifiApsEnabled = {};
+		for (const wifiDevice of wifiDevices) {
+			// Record whether each device has an enabled AP
+			wifiApsEnabled[wifiDevice.name] = uci.get('wireless', wifiDevice.apInterfaceName, 'disabled') !== '1';
+
 			// We don't have an explicit option for this, but it's determined by uplink.
 			// And because uplink is a complex option that's not valid for clients and is resolved here...
-			uci.set('wireless', wifiStaInterfaceName, 'disabled', uplink === 'wifi' ? '0' : '1');
+			uci.set('wireless', wifiDevice.staInterfaceName, 'disabled', uplink === `wifi-${wifiDevice.staInterfaceName}` ? '0' : '1');
 		}
 
 		uci.set('wireless', morseInterfaceName, 'mode', 'mesh');
@@ -157,11 +163,13 @@ return wizard.AbstractWizardView.extend({
 				uci.set('wireless', morseMeshApInterfaceName, 'wds', '1');
 			}
 
-			if (isWifiAp) {
-				uci.set('wireless', wifiApInterfaceName, 'network', 'ahwlan');
+			for (const wifiDevice of wifiDevices) {
+				if (wifiApsEnabled[wifiDevice.name]) {
+					uci.set('wireless', wifiDevice.apInterfaceName, 'network', 'ahwlan');
+				}
 			}
 
-			morseuci.useBridgeIfNeeded('ahwlan');
+			morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 			return 'ahwlan';
 		};
@@ -178,12 +186,14 @@ return wizard.AbstractWizardView.extend({
 				uci.set('wireless', morseMeshApInterfaceName, 'wds', '1');
 			}
 
-			if (isWifiAp) {
-				uci.set('wireless', wifiApInterfaceName, 'network', 'lan');
+			for (const wifiDevice of wifiDevices) {
+				if (wifiApsEnabled[wifiDevice.name]) {
+					uci.set('wireless', wifiDevice.apInterfaceName, 'network', 'lan');
+				}
 			}
 
-			morseuci.useBridgeIfNeeded('lan');
-			morseuci.useBridgeIfNeeded('ahwlan');
+			morseuci.createOrRemoveBridgeAsNeeded('lan');
+			morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 			return { ethIface: 'lan', halowIface: 'ahwlan' };
 		};
@@ -206,8 +216,10 @@ return wizard.AbstractWizardView.extend({
 					uci.set('wireless', morseMeshApInterfaceName, 'network', 'ahwlan');
 					uci.set('wireless', morseMeshApInterfaceName, 'wds', '1');
 				}
-				if (isWifiAp) {
-					uci.set('wireless', wifiApInterfaceName, 'network', 'ahwlan');
+				for (const wifiDevice of wifiDevices) {
+					if (wifiApsEnabled[wifiDevice.name]) {
+						uci.set('wireless', wifiDevice.apInterfaceName, 'network', 'ahwlan');
+					}
 				}
 				const [_, port] = uplink.split('-');
 				if (port) {
@@ -218,8 +230,8 @@ return wizard.AbstractWizardView.extend({
 				}
 
 				// Bridges
-				morseuci.useBridgeIfNeeded(upstreamNetwork);
-				morseuci.useBridgeIfNeeded('ahwlan');
+				morseuci.createOrRemoveBridgeAsNeeded(upstreamNetwork);
+				morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 				uci.set('network', upstreamNetwork, 'proto', 'dhcp');
 				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp);
@@ -233,14 +245,15 @@ return wizard.AbstractWizardView.extend({
 				const iface = bridgeMode();
 
 				uci.set('network', iface, 'proto', 'dhcp');
-			} else if (uplink === 'wifi') {
+			} else if (uplink?.match(/wifi/)) {
 				const iface = bridgeMode();
 
-				wizard.setupNetworkIface('wifi24lan', { local: true });
-				uci.set('network', 'wifi24lan', 'proto', 'dhcp');
-				uci.set('wireless', wifiStaInterfaceName, 'network', 'wifi24lan');
+				wizard.setupNetworkIface('lan', { local: true });
+				uci.set('network', 'lan', 'proto', 'dhcp');
+				const [_, uplinkWifiStaInterfaceName] = uplink.split('-');
+				uci.set('wireless', uplinkWifiStaInterfaceName, 'network', 'lan');
 				morseuci.setupNetworkWithDnsmasq(iface, wlanIp);
-				morseuci.getOrCreateForwarding(iface, 'wifi24lan', 'wifi24forward');
+				morseuci.getOrCreateForwarding(iface, 'lan', 'mmrouter');
 			}
 		} else {
 			if (device_mode_meshpoint === 'extender') { // i.e. router
@@ -266,43 +279,46 @@ return wizard.AbstractWizardView.extend({
 	loadPages() {
 		// resetUci disables all wifi-ifaces, but we want to remember the state of these.
 		const {
-			wifiApInterfaceName,
+			wifiDevices,
 			morseMeshApInterfaceName,
 		} = wizard.readSectionInfo();
-
+		const wifiApsEnabled = wifiDevices.reduce((acc, wifiDevice) => ({
+			...acc,
+			[wifiDevice.name]: uci.get('wireless', wifiDevice.apInterfaceName, 'disabled') !== '1',
+		}), {});
 		return [
-			uci.get('wireless', wifiApInterfaceName, 'disabled') === '1',
+			wifiApsEnabled,
 			uci.get('wireless', morseMeshApInterfaceName, 'disabled') === '1',
 		];
 	},
 
-	renderPages([wifiApDisabled, morseMeshApDisabled]) {
+	renderPages([wifiApsEnabled, morseMeshApDisabled]) {
 		let page, option;
 
 		const map = this.map;
 		const {
+			wifiDevices,
 			morseDeviceName,
-			wifiDeviceName,
 			morseInterfaceName,
 			morseMeshApInterfaceName,
-			wifiApInterfaceName,
-			wifiStaInterfaceName,
 		} = wizard.readSectionInfo();
 
 		uci.unset('wireless', morseInterfaceName, 'disabled');
 
-		if (wifiDeviceName) {
-			if (!wifiApDisabled) {
-				uci.unset('wireless', wifiApInterfaceName, 'disabled');
+		for (const wifiDevice of wifiDevices) {
+			// Remove any traces of the AP ever being disabled
+			if (wifiApsEnabled[wifiDevice.name]) {
+				uci.unset('wireless', wifiDevice.apInterfaceName, 'disabled');
 			}
-			uci.set('wireless', wifiApInterfaceName, 'device', wifiDeviceName);
-			uci.set('wireless', wifiApInterfaceName, 'mode', 'ap');
 
-			if (!uci.get('wireless', wifiStaInterfaceName)) {
-				uci.add('wireless', 'wifi-iface', wifiStaInterfaceName);
+			uci.set('wireless', wifiDevice.apInterfaceName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.apInterfaceName, 'mode', 'ap');
+
+			if (!uci.get('wireless', wifiDevice.staInterfaceName)) {
+				uci.add('wireless', 'wifi-iface', wifiDevice.staInterfaceName);
 			}
-			uci.set('wireless', wifiStaInterfaceName, 'device', wifiDeviceName);
-			uci.set('wireless', wifiStaInterfaceName, 'mode', 'sta');
+			uci.set('wireless', wifiDevice.staInterfaceName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.staInterfaceName, 'mode', 'sta');
 		}
 
 		// Create a morse AP config section for mesh gate configuration
@@ -328,7 +344,10 @@ return wizard.AbstractWizardView.extend({
 		const morseDeviceSection = map.section(form.NamedSection, morseDeviceName, 'wifi-device');
 		const morseMeshInterfaceSection = map.section(form.NamedSection, morseInterfaceName, 'wifi-interface');
 		const morseApInterfaceSection = map.section(form.NamedSection, morseMeshApInterfaceName, 'wifi-interface');
-		const wifiApInterfaceSection = map.section(form.NamedSection, wifiApInterfaceName, 'wifi-interface');
+		const wifiApInterfaceSections = {};
+		for (const wifiDevice of wifiDevices) {
+			wifiApInterfaceSections[wifiDevice.name] = map.section(form.NamedSection, wifiDevice.apInterfaceName, 'wifi-interface');
+		}
 		const meshParamsConfigSection = map.section(form.NamedSection, 'mesh_params', 'mesh11sd');
 		meshParamsConfigSection.uciconfig = 'mesh11sd';
 		// We put the network configuration in its own dummy section inside wireless.
@@ -357,8 +376,8 @@ return wizard.AbstractWizardView.extend({
 		page.enableDiagram({
 			extras: ['GATE_SELECT_FILL', 'POINT_SELECT_FILL'],
 			blacklist: [
-				'GATE_UPLINK', 'GATE_UPLINK_WIFI24', 'GATE_MGMT_ETH', 'GATE_UPLINK_ETH', 'GATE_WIFI24', 'GATE_HALOW_MESH_INT', 'GATE_HALOW_AP',
-				'POINT_HALOW_INT', 'POINT_MGMT_ETH', 'POINT_WIFI24',
+				'GATE_UPLINK', 'GATE_UPLINK_WIFI', 'GATE_MGMT_ETH', 'GATE_UPLINK_ETH', 'GATE_WIFI', 'GATE_HALOW_MESH_INT', 'GATE_HALOW_AP',
+				'POINT_HALOW_INT', 'POINT_MGMT_ETH', 'POINT_WIFI',
 			],
 		});
 
@@ -386,8 +405,8 @@ return wizard.AbstractWizardView.extend({
 		page.enableDiagram({
 			extras: ['POINT_HALOW_INT_SELECT', 'GATE_HALOW_MESH_INT_SELECT', 'POINT_HALOW_INT_SELECT_FILL', 'GATE_HALOW_MESH_INT_SELECT_FILL'],
 			blacklist: [
-				'GATE_UPLINK', 'GATE_UPLINK_WIFI24', 'GATE_MGMT_ETH', 'GATE_UPLINK_ETH', 'GATE_WIFI24', 'GATE_HALOW_AP',
-				'POINT_MGMT_ETH', 'POINT_WIFI24',
+				'GATE_UPLINK', 'GATE_UPLINK_WIFI', 'GATE_MGMT_ETH', 'GATE_UPLINK_ETH', 'GATE_WIFI', 'GATE_HALOW_AP',
+				'POINT_MGMT_ETH', 'POINT_WIFI',
 				'POINT_HALOW_INT:SSID', 'POINT_HALOW_INT:IP', 'POINT_HALOW_INT:IPMethod',
 				'GATE_HALOW_MESH_INT:SSID', 'GATE_HALOW_MESH_INT:IP', 'GATE_HALOW_MESH_INT:IPMethod',
 			],
@@ -401,6 +420,7 @@ return wizard.AbstractWizardView.extend({
 			thisWizardView.onchangeOptionUpdateDiagram(this);
 		};
 		option.load = sectionId => uci.get('wireless', sectionId, 'mesh_id') || morseuci.getDefaultSSID();
+		option.forcewrite = true; // Required since our load doesn't reflect uci.
 
 		option = page.option(form.Value, 'key', _('Mesh Passphrase'));
 		option.datatype = 'wpakey';
@@ -409,6 +429,7 @@ return wizard.AbstractWizardView.extend({
 		option.retain = true;
 		option.load = sectionId =>
 			(initialMorseMode === 'mesh' && uci.get('wireless', sectionId, 'key')) || morseuci.getDefaultWifiKey();
+		option.forcewrite = true; // Required since our load doesn't reflect uci.
 
 		option = page.option(widgets.WifiFrequencyValue, '_freq', '<br />' + _('Operating Frequency'));
 		option.ucisection = morseDeviceName;
@@ -443,7 +464,7 @@ return wizard.AbstractWizardView.extend({
 				'POINT_MGMT_ETH_INT_SELECT', 'POINT_MGMT_ETH_INT_SELECT_FILL',
 			],
 			blacklist: [
-				'POINT_WIFI24',
+				'POINT_WIFI',
 			],
 		});
 
@@ -502,8 +523,8 @@ return wizard.AbstractWizardView.extend({
 				'GATE_MGMT_ETH_INT_SELECT', 'GATE_MGMT_ETH_INT_SELECT_FILL',
 				'GATE_UPLINK_ETH_INT_SELECT', 'GATE_UPLINK_ETH_INT_SELECT_FILL',
 				'GATE_HALOW_MESH_INT_SELECT', 'GATE_HALOW_MESH_INT_SELECT_FILL',
-				'GATE_UPLINK_WIFI24_INT_SELECT', 'GATE_UPLINK_WIFI24_INT_SELECT_FILL'],
-			blacklist: ['GATE_WIFI24', 'GATE_HALOW_AP'],
+				'GATE_UPLINK_WIFI_INT_SELECT', 'GATE_UPLINK_WIFI_INT_SELECT_FILL'],
+			blacklist: ['GATE_WIFI', 'GATE_HALOW_AP'],
 		});
 
 		option = page.option(form.ListValue, 'uplink');
@@ -530,13 +551,17 @@ return wizard.AbstractWizardView.extend({
 				option.value(`ethernet-${port.device}`, `Ethernet (${port.device})`);
 			}
 		}
-		if (wifiDeviceName) {
-			option.value('wifi', _('Wi-Fi (2.4 GHz)'));
+
+		for (const wifiDevice of wifiDevices) {
+			const displayName = wifiDevices.length > 1
+				? `${wifiDevice.getBandName()} Wi-Fi (${wifiDevice.name})`
+				: `${wifiDevice.getBandName()} Wi-Fi`;
+			option.value(`wifi-${wifiDevice.staInterfaceName}`, displayName);
 		}
 		option.onchange = function (ev, sectionId, value) {
-			if (value == 'ethernet') {
+			if (value.includes('ethernet')) {
 				this.page.updateInfoText(ethInfoAp, thisWizardView);
-			} else if (value == 'wifi') {
+			} else if (value.includes('wifi')) {
 				this.page.updateInfoText(wifiInfoAp, thisWizardView);
 			} else if (value == 'none') {
 				this.page.updateInfoText(noneInfoAp, thisWizardView);
@@ -544,44 +569,45 @@ return wizard.AbstractWizardView.extend({
 			thisWizardView.onchangeOptionUpdateDiagram(this);
 		};
 
-		if (wifiDeviceName) {
-			option = page.option(morseui.SSIDListScan, 'uplink_ssid', _('<abbr title="Service Set Identifier">SSID</abbr>'));
+		for (const wifiDevice of wifiDevices) {
+			option = page.option(morseui.SSIDListScan, `uplink_ssid-${wifiDevice.staInterfaceName}`, _('<abbr title="Service Set Identifier">SSID</abbr>'));
 			// Have to be explicit here because we change uciconfig/section/option.
-			option.depends('network.wizard.uplink', 'wifi');
+			option.depends('network.wizard.uplink', `wifi-${wifiDevice.staInterfaceName}`);
 			option.uciconfig = 'wireless';
-			option.ucisection = wifiStaInterfaceName;
+			option.ucisection = wifiDevice.staInterfaceName;
 			option.ucioption = 'ssid';
 			option.staOnly = true;
 			option.scanAlerts = true;
 			option.rmempty = false;
 			option.retain = true;
-			option.scanEncryptions = ['psk2', 'psk', 'sae', 'none'];
+			option.scanEncryptions = ['psk2', 'psk', 'sae', 'owe', 'none'];
 			option.onchangeWithEncryption = function (ev, sectionId, value, encryption) {
 				thisWizardView.onchangeOptionUpdateDiagram(this);
-				this.section.getUIElement(sectionId, 'uplink_encryption').setValue(encryption);
-				this.section.getUIElement(sectionId, 'uplink_key').setValue('');
+				this.section.getUIElement(sectionId, `uplink_encryption-${wifiDevice.staInterfaceName}`).setValue(encryption);
+				this.section.getUIElement(sectionId, `uplink_key-${wifiDevice.staInterfaceName}`).setValue('');
 			};
 
-			// 2.4 Credentials are one of the few things we don't want to retain,
+			// Non-HaLow wifi credentials are one of the few things we don't want to retain,
 			// as users might be putting more sensitive creds here
 			// (i.e. if you disable, this should disappear).
-			option = page.option(form.ListValue, 'uplink_encryption', _('Encryption'));
+			option = page.option(form.ListValue, `uplink_encryption-${wifiDevice.staInterfaceName}`, _('Encryption'));
 			option.uciconfig = 'wireless';
-			option.ucisection = wifiStaInterfaceName;
+			option.ucisection = wifiDevice.staInterfaceName;
 			option.ucioption = 'encryption';
-			option.depends('network.wizard.uplink', 'wifi');
+			option.depends('network.wizard.uplink', `wifi-${wifiDevice.staInterfaceName}`);
 			option.value('psk2', _('WPA2-PSK'));
-			option.value('psk', _('WPA-PSK'));
 			option.value('sae', _('WPA3-SAE'));
+			option.value('psk', _('WPA-PSK'));
+			option.value('owe', _('OWE'));
 			option.value('none', _('None'));
 
-			option = page.option(form.Value, 'uplink_key', _('Passphrase'));
+			option = page.option(form.Value, `uplink_key-${wifiDevice.staInterfaceName}`, _('Passphrase'));
 			// Have to be explicit here because we change uciconfig/section/option.
-			option.depends('wireless.wizard.uplink_encryption', 'psk');
-			option.depends('wireless.wizard.uplink_encryption', 'psk2');
-			option.depends('wireless.wizard.uplink_encryption', 'sae');
+			option.depends(`wireless.wizard.uplink_encryption-${wifiDevice.staInterfaceName}`, 'psk');
+			option.depends(`wireless.wizard.uplink_encryption-${wifiDevice.staInterfaceName}`, 'psk2');
+			option.depends(`wireless.wizard.uplink_encryption-${wifiDevice.staInterfaceName}`, 'sae');
 			option.uciconfig = 'wireless';
-			option.ucisection = wifiStaInterfaceName;
+			option.ucisection = wifiDevice.staInterfaceName;
 			option.ucioption = 'key';
 			option.datatype = 'wpakey';
 			option.password = true;
@@ -624,7 +650,7 @@ return wizard.AbstractWizardView.extend({
 			This interface will be bridged with the mesh interface.`));
 		page.enableDiagram({
 			extras: ['GATE_HALOW_AP_INT_SELECT', 'GATE_HALOW_AP_INT_SELECT_FILL', 'POINT_HALOW_AP_INT_SELECT', 'POINT_HALOW_AP_INT_SELECT_FILL'],
-			blacklist: ['GATE_WIFI24', 'POINT_WIFI24'],
+			blacklist: ['GATE_WIFI', 'POINT_WIFI'],
 		});
 
 		option = page.option(morseui.Slider, 'disabled', _('Enable HaLow Access Point'));
@@ -654,18 +680,18 @@ return wizard.AbstractWizardView.extend({
 
 		/*****************************************************************************/
 
-		if (wifiDeviceName) {
-			page = this.page(wifiApInterfaceSection,
-				_('2.4 GHz Wi-Fi Access Point'),
-				_(`This HaLow device is also capable of 2.4 GHz Wi-Fi.
-				If you enable a 2.4 GHz Wi-Fi <b>Access Point</b>, you will be able to
-				connect non-HaLow Wi-Fi clients to this device.`));
+		for (const wifiDevice of wifiDevices) {
+			page = this.page(wifiApInterfaceSections[wifiDevice.name],
+				`${wifiDevice.getBandName()} Wi-Fi Access Point`,
+				`This HaLow device is also capable of ${wifiDevice.getBandName()} Wi-Fi.
+				If you enable a ${wifiDevice.getBandName()} Wi-Fi <b>Access Point</b>, you will be able to
+				connect ${wifiDevice.getBandName()} Wi-Fi clients to this device.`);
 			page.enableDiagram({
-				extras: ['GATE_WIFI24_INT_SELECT', 'GATE_WIFI24_INT_SELECT_FILL',
-				         'POINT_WIFI24_INT_SELECT', 'POINT_WIFI24_INT_SELECT_FILL'],
+				extras: ['GATE_WIFI_INT_SELECT', 'GATE_WIFI_INT_SELECT_FILL',
+				         'POINT_WIFI_INT_SELECT', 'POINT_WIFI_INT_SELECT_FILL'],
 			});
 
-			option = page.option(morseui.Slider, 'disabled', _('Enable 2.4GHz Access Point'));
+			option = page.option(morseui.Slider, 'disabled', `Enable ${wifiDevice.getBandName()} Access Point`);
 			option.enabled = '0';
 			option.disabled = '1';
 			option.default = '0';
@@ -691,7 +717,7 @@ return wizard.AbstractWizardView.extend({
 
 			option = page.option(form.ListValue, 'encryption', _('Encryption'));
 			option.value('psk2', _('WPA2-PSK'));
-			option.value('psk', _('WPA-PSK'));
+			option.value('sae-mixed', _('WPA2-PSK/WPA3-SAE Mixed Mode'));
 			option.value('sae', _('WPA3-SAE'));
 			option.depends('disabled', '0');
 		}
@@ -710,11 +736,11 @@ return wizard.AbstractWizardView.extend({
 
 		option = page.html(() => this.renderIPChangeAlert());
 
-		if (wifiDeviceName) {
-			option = page.step(_(`
-				Connect another device via <b>2.4 GHz Wi-Fi</b> to use your new HaLow link.
-			`));
-			option.depends({ mode: 'sta', [`wireless.${wifiApInterfaceName}.disabled`]: '0' });
+		for (const wifiDevice of wifiDevices) {
+			option = page.step(`
+				Connect another device via <b>${wifiDevice.getBandName()} Wi-Fi</b> to use your new HaLow link.
+			`);
+			option.depends({ mode: 'sta', [`wireless.${wifiDevice.apInterfaceName}.disabled`]: '0' });
 		}
 
 		// AP steps
@@ -724,17 +750,17 @@ return wizard.AbstractWizardView.extend({
 		`));
 		option.depends('network.wizard.uplink', /ethernet/);
 
-		if (wifiDeviceName) {
+		for (const wifiDevice of wifiDevices) {
 			option = page.step(_(`
-				Connect 2.4 GHz devices to your network.
+				Connect ${wifiDevice.getBandName()} devices to your network.
 			`));
-			option.depends({ mode: 'ap', [`wireless.${wifiApInterfaceName}.disabled`]: '0' });
+			option.depends({ mode: 'ap', [`wireless.${wifiDevice.apInterfaceName}.disabled`]: '0' });
 		}
 
 		option = page.step(_(`
 			Connect Ethernet devices to your network.
 		`));
-		option.depends('network.wizard.uplink', 'wifi');
+		option.depends('network.wizard.uplink', /wifi/);
 		option.depends('network.wizard.uplink', 'none');
 
 		option = page.step(_(`For advanced 802.11s mesh settings, you can navigate to Network->Wireless page once you exit the wizard`));

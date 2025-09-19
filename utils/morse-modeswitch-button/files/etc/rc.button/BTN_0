@@ -23,7 +23,7 @@ timeout)
 released)
 	if [ "$SEEN" -lt 2 ]
 	then
-		/morse/scripts/dpp_start.sh
+		ubus call dpp push_button
 	elif [ "$SEEN" -ge 10 ]
 	then
 		logger -t button -p daemon.notice "setting mode to STA"

@@ -72,7 +72,7 @@ return view.extend({
 		const mapEls = document.getElementById('maincontent').querySelectorAll('.cbi-map');
 		const maps = Array.from(mapEls).map(mapEl => dom.findClassInstance(mapEl));
 		const morseDeviceName = uci.sections('wireless', 'wifi-device').find(s => s.type === 'morse')['.name'];
-		const wifiDeviceName = uci.sections('wireless', 'wifi-device').find(s => s.type === 'mac80211')?.['.name'];
+		const wifiDevices = uci.sections('wireless', 'wifi-device').filter(s => s.type === 'mac80211');
 
 		try {
 			for (const m of maps) {
@@ -81,9 +81,9 @@ return view.extend({
 
 			await Promise.all(maps.map(m => m.parse()));
 
-			// Make sure our first non-morse wifi device is enabled if it exists.
-			if (wifiDeviceName) {
-				uci.unset('wireless', wifiDeviceName, 'disabled');
+			// Make sure all non-morse wifi devices are enabled where they exist.
+			for (const wifiDevice of wifiDevices) {
+				uci.unset('wireless', wifiDevice['.name'], 'disabled');
 			}
 
 			// Make sure our first HaLow device is enabled.

@@ -96,6 +96,18 @@ morse_iface_available()
     test "$hwmode" == "ah"
 }
 
+is_easymesh_controller()
+{
+    prplmesh_enable=$(uci get prplmesh.config.enable 2> /dev/null)
+    master=$(uci get prplmesh.config.master 2> /dev/null)
+    if [ "$prplmesh_enable" == 1 ] && [ "$master" == 1 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+
 PHY=
 find_phy
 
@@ -126,7 +138,7 @@ r() {
     "$@" >> "$output" 2>&1
 }
 
-# Save data from a location (using cp -a). e.g.
+# Save data from a location (using rsync -a). e.g.
 #
 #   s /var/log
 #
@@ -134,13 +146,19 @@ r() {
 # (proxy for a proper data structure), and must be given
 # an absolute path.
 s() {
-    for x in "$@"; do
-        if [ -e "$x" ]; then
-            echo "Saving: $x"
-            mkdir -p "files$(dirname $x)"
-            cp -a "$x" "files$x"
-        fi
+    x="$1"
+
+    shift
+    exs=""
+    for ex in "$@"; do
+        exs="$exs --exclude $ex"
     done
+
+    if [ -e "$x" ]; then
+        echo "Saving: $x with $exs"
+        mkdir -p "files$(dirname $x)"
+        rsync -a "$x" "files$(dirname $x)" $exs
+    fi
 }
 
 echo "Saving info to $OUTPUT_PATH/$DEBUG_DIR"
@@ -149,7 +167,7 @@ r dmesg.txt                dmesg
 r versions.txt             "$MORSE_DIR"morse/scripts/versions.sh
 r morsectrl_stats.json     morse_cli -i "$INTERFACE" stats -j
 r morsectrl_channel.txt    morse_cli -i "$INTERFACE" channel
-r iw_link.txt              iw "$INTERFACE" link > iw_link.txt
+r iw_link.txt              iw "$INTERFACE" link
 r iw_station_dump.txt      iw "$INTERFACE" station dump
 r iwinfo.txt               iwinfo
 r iwinfo_assoclist.txt     iwinfo "$INTERFACE" assoclist
@@ -162,9 +180,10 @@ r running_procs.txt        ps ww
 r cpu_and_mem_usage.txt    top -b -n1
 r disk_usage.txt           df -h
 r syslog.txt               logread
-r prplmesh_data_model.json ubus call Device.WiFi.DataElements _get '{"depth":"10"}'
-r prplmesh_conn_map.txt    /opt/prplmesh/bin/beerocks_cli -c bml_conn_map
-
+if is_easymesh_controller; then
+    r prplmesh_data_model.json ubus call Device.WiFi.DataElements _get '{"depth":"10"}'
+    r prplmesh_conn_map.txt    /opt/prplmesh/bin/beerocks_cli -c bml_conn_map
+fi
 s /var/log
 s /etc/config
 s /var/run
@@ -178,7 +197,7 @@ s /sys/fs/pstore
 s /root/.ash_history
 
 # Reading one of these parameters errors out.
-s /sys/kernel/debug/ieee80211/$PHY/morse 2> /dev/null
+s /sys/kernel/debug/ieee80211/$PHY/morse twt_sta_agreements twt_wi_tree 2> /dev/null
 
 
 if $TEARDOWN_INTERFACE; then

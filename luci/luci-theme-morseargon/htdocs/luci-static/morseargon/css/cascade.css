@@ -31,7 +31,7 @@
   --main-heading-bg: #5a5a5a;
   --main-heading-fg: white;
   --header-color: #fff;
-  --bar-bg: #5e72e4;
+  --bar-bg: #e9d9f2;
   --menu-bg-color: #fff;
   --menu-color: #5f6368;
   --menu-color-hover: #202124;
@@ -1663,7 +1663,8 @@ tr > th,
   width: 100%;
   gap: 0;
 
-  input {
+  div.cbi-dropdown:has(+ button),
+  input:not(.create-item-input) {
     border-bottom-right-radius: 0;
     border-top-right-radius: 0;
     border-right-width: 0;
@@ -2413,6 +2414,16 @@ body:not(.Interfaces) .cbi-rowstyle-2:first-child {
 
 .cbi-dropdown > ul.preview {
   display: none;
+}
+
+.cbi-dropdown.cbi-button-apply,
+.cbi-dropdown.cbi-button-negative {
+  min-height: 1.5em;
+}
+
+.cbi-dropdown.cbi-button-apply > ul,
+.cbi-dropdown.cbi-button-negative > ul {
+  line-height: 1.5em;
 }
 
 .cbi-button-apply > ul.preview {

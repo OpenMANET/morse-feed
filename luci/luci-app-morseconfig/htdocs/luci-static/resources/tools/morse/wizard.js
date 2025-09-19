@@ -57,6 +57,36 @@ const directUciRpc = {
 
 class WizardConfigError extends Error { }
 
+class WizardWifiDevice {
+	constructor(config = {}) {
+		Object.assign(this, config);
+	}
+
+	get name() {
+		return this['.name'];
+	}
+
+	get apInterfaceName() {
+		return `default_${this.name}`;
+	}
+
+	get staInterfaceName() {
+		return `sta_${this.name}`;
+	}
+
+	getBandName() {
+		const bandNames = {
+			's1g': '802.11ah HaLow',
+			'2g': '2.4 GHz',
+			'5g': '5 GHz',
+			'6g': '6 GHz',
+			'60g': '60 GHz',
+		};
+
+		return bandNames[this.band] || 'Unknown Band';
+	}
+}
+
 /* Extract the most important information from UCI that we tend to use.
  *
  * This is somewhat similar to missingSections in morseconf.js, except that
@@ -67,15 +97,17 @@ class WizardConfigError extends Error { }
  */
 function readSectionInfo() {
 	const morseDevice = uci.sections('wireless', 'wifi-device').find(s => s.type === 'morse');
-	const wifiDevice = uci.sections('wireless', 'wifi-device').find(s => s.type === 'mac80211');
 	const morseDeviceName = morseDevice?.['.name'];
-	const wifiDeviceName = wifiDevice?.['.name'];
 	const morseInterfaceName = `default_${morseDeviceName}`;
 	const morseBackhaulStaName = `default_bh_${morseDeviceName}`;
 	const morseMeshApInterfaceName = `meshap_${morseDeviceName}`;
-	const wifiApInterfaceName = `default_${wifiDeviceName}`;
-	const wifiStaInterfaceName = `sta_${wifiDeviceName}`;
 	const morseMeshInterfaceName = `mesh_${morseDeviceName}`;
+
+	const wifiDevices = [];
+	const wifiDeviceConfigs = uci.sections('wireless', 'wifi-device').filter(s => s.type === 'mac80211');
+	for (const wifiDeviceConfig of wifiDeviceConfigs) {
+		wifiDevices.push(new WizardWifiDevice(wifiDeviceConfig));
+	}
 
 	// privlan has been removed from all the configs, but for those upgrading we should prefer the IP address
 	// in privlan (i.e. likely 10.42.0.1) to that in lan (likely 192.168.1.1).
@@ -102,20 +134,25 @@ function readSectionInfo() {
 		uci.set('wireless', morseInterfaceName, 'disabled', '1');
 	}
 
-	if (wifiDevice && !uci.get('wireless', wifiApInterfaceName)) {
-		uci.add('wireless', 'wifi-iface', wifiApInterfaceName);
-		uci.set('wireless', wifiApInterfaceName, 'device', wifiDeviceName);
-		uci.set('wireless', wifiApInterfaceName, 'mode', 'ap');
-		uci.set('wireless', wifiApInterfaceName, 'encryption', 'psk2');
-		uci.set('wireless', wifiApInterfaceName, 'ssid', morseuci.getDefaultSSID());
-		uci.set('wireless', wifiApInterfaceName, 'mesh_id', morseuci.getDefaultSSID());
-		uci.set('wireless', wifiApInterfaceName, 'key', morseuci.getDefaultWifiKey());
-		uci.set('wireless', wifiApInterfaceName, 'disabled', '1');
+	for (const wifiDevice of wifiDevices) {
+		if (!uci.get('wireless', wifiDevice.apInterfaceName)) {
+			uci.add('wireless', 'wifi-iface', wifiDevice.apInterfaceName);
+			uci.set('wireless', wifiDevice.apInterfaceName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.apInterfaceName, 'mode', 'ap');
+			uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'psk2');
+			uci.set('wireless', wifiDevice.apInterfaceName, 'ssid', morseuci.getDefaultSSID());
+			uci.set('wireless', wifiDevice.apInterfaceName, 'mesh_id', morseuci.getDefaultSSID());
+			uci.set('wireless', wifiDevice.apInterfaceName, 'key', morseuci.getDefaultWifiKey());
+			uci.set('wireless', wifiDevice.apInterfaceName, 'disabled', '1');
+		}
 	}
 
 	const checkDevices = {
 		[morseDeviceName]: [morseInterfaceName, morseBackhaulStaName, morseMeshApInterfaceName, morseMeshInterfaceName],
-		[wifiDeviceName]: [wifiApInterfaceName, wifiStaInterfaceName],
+		...wifiDevices.reduce((acc, wifiDevice) => ({
+			...acc,
+			[wifiDevice.name]: [wifiDevice.apInterfaceName, wifiDevice.staInterfaceName],
+		}), {}),
 	};
 
 	for (const [deviceName, ifaceNames] of Object.entries(checkDevices)) {
@@ -128,16 +165,13 @@ function readSectionInfo() {
 	}
 
 	return {
+		wifiDevices,
 		morseDevice,
 		morseDeviceName,
-		wifiDevice,
-		wifiDeviceName,
 		morseInterfaceName,
 		morseMeshInterfaceName,
 		morseBackhaulStaName,
 		morseMeshApInterfaceName,
-		wifiApInterfaceName,
-		wifiStaInterfaceName,
 		lanIp,
 		wlanIp,
 	};
@@ -383,8 +417,8 @@ function resetUci() {
 	// If it's a known interface that the wizard likes to use, clean out anything that
 	// could interfere. We can leave the other interfaces alone after disabling them
 	// (which will allow people to keep non-wizard interfaces around safely).
-	const { morseMeshApInterfaceName, morseInterfaceName, wifiApInterfaceName, wifiStaInterfaceName } = readSectionInfo();
-	const knownInterfaces = new Set([morseMeshApInterfaceName, morseInterfaceName, wifiApInterfaceName, wifiStaInterfaceName]);
+	const { morseMeshApInterfaceName, morseInterfaceName, wifiDevices } = readSectionInfo();
+	const knownInterfaces = new Set([morseMeshApInterfaceName, morseInterfaceName, ...wifiDevices.map(s => s.apInterfaceName), ...wifiDevices.map(s => s.staInterfaceName)]);
 
 	for (const iface of uci.sections('wireless', 'wifi-iface')) {
 		if (knownInterfaces.has(iface['.name'])) {
@@ -570,7 +604,7 @@ class WizardPage {
 	}
 
 	step(contents) {
-		return this.html(E('div', { class: 'wizard-step' }, E('span', {}, ['· ', contents])));
+		return this.html(E('div', { class: 'wizard-step' }, ['· ', E('span', {}, contents)]));
 	}
 
 	heading(contents) {
@@ -772,12 +806,12 @@ const AbstractWizardView = view.extend({
 
 		const {
 			morseDevice,
-			wifiDevice,
+			wifiDevices,
 		} = readSectionInfo();
 
 		// If our wifi devices aren't enabled/configured, force the user
 		// back to the landing page (which will do this for us).
-		if (morseDevice.disabled === '1' || !morseDevice.country || (wifiDevice && wifiDevice.disabled === '1')) {
+		if (morseDevice.disabled === '1' || !morseDevice.country || wifiDevices.some(s => s.disabled === '1')) {
 			window.location = L.url('admin', 'morse', 'landing');
 			return;
 		}
@@ -996,16 +1030,15 @@ const AbstractWizardView = view.extend({
 		}
 		this.infoboxEl.innerHTML = this.currentPage.infobox;
 
-		this.updateDiagram(this.currentPage);
+		// Parse any options on the current page. This means that quirky things
+		// that are happening - ok, we do some .loads which don't
+		// properly reflect the underlying UCI for our default wifi SSID/keys
+		// - are immediately pushed into uci when the page renders
+		// so that the diagram will update.
+		this.parseCurrentPage().then(() => this.updateDiagram(this.currentPage));
 	},
 
-	async handleNext() {
-		const pages = this.getActivePages();
-		const i = pages.indexOf(this.currentPage);
-		if (i === -1 || i === pages.length - 1) {
-			return;
-		}
-
+	async parseCurrentPage() {
 		const errs = [];
 		await Promise.allSettled(this.currentPage.options.map(async (option) => {
 			const sectionId = option.section.section;
@@ -1028,7 +1061,17 @@ const AbstractWizardView = view.extend({
 			// after calling .write.
 			option.cfgvalue(sectionId, option.load(sectionId));
 		}));
+		return errs;
+	},
 
+	async handleNext() {
+		const pages = this.getActivePages();
+		const i = pages.indexOf(this.currentPage);
+		if (i === -1 || i === pages.length - 1) {
+			return;
+		}
+
+		const errs = await this.parseCurrentPage();
 		if (errs.length === 0) {
 			this.gotoPage(pages, i + 1);
 		} else {

@@ -63,39 +63,6 @@ check_morse_device() {
 	[ "$phy" = "$dev" ] && found=1
 }
 
-# This approach was copied from wireless/morse.sh. See APP-3700.
-#  - why are we putting the chipid in system.notes?
-#  - why are we then pretending system.notes is always just the chipid?
-#  - why are overwriting any changes to system.notes that the user makes?
-#  - what happens if we have more than one morse chip?
-# It's currently used in the luci status plugin.
-set_chipid() {
-	local phy=$1
-
-	iw phy "$phy" interface add wlan_chipid type managed
-	ip link set wlan_chipid up
-
-	local chip_revision
-	chip_revision="$(morse_cli -i wlan_chipid hw_version 2> /dev/null)"
-	if [ $? -eq 0 ]; then
-		# On fast devices, it's possible for this hotplug to run before
-		# config_generate (which runs immediately after the module load)
-		# has created the config files. Since config_generate will only run if
-		# /etc/config/system doesn't exist, we must wait until
-		# it's created it. Yet another reason not to store in system.notes.
-		local retries=10
-		while [ "$retries" -gt 0 ] && ! uci -q get 'system.@system[0]' > /dev/null; do
-			sleep 0.5
-			retries=$((retries - 1))
-		done
-
-		uci set system.@system[0].notes="${chip_revision##"HW Version: "}"
-		uci commit system
-	fi
-
-	iw dev wlan_chipid del
-}
-
 detect_morse() {
 	devidx=0
 	config_load wireless
@@ -111,8 +78,6 @@ detect_morse() {
 		# Only configure morse devices.
 		basename "$(readlink -f "$_dev/device/driver/")" | grep '^morse_' || continue
 
-		set_chipid "$(basename "$_dev")"
-
 		dev="${_dev##*/}"
 
 		# Skip already configured devices.
@@ -121,11 +86,19 @@ detect_morse() {
 		config_foreach check_morse_device wifi-device
 		[ "$found" -gt 0 ] && continue
 
-		path="$(iwinfo dot11ah path "$dev")"
+		local path="$(iwinfo dot11ah path "$dev")"
+		local macaddr="$(cat /sys/class/ieee80211/${dev}/macaddress)"
+		local board_type="$(cat /sys/class/ieee80211/${dev}/device/board_type)"
 		if [ -n "$path" ]; then
 			dev_id="set wireless.radio${devidx}.path='$path'"
+		elif [ -n "$macaddr" ]; then
+			dev_id="set wireless.radio${devidx}.macaddr=$macaddr"
 		else
-			dev_id="set wireless.radio${devidx}.macaddr=$(cat /sys/class/ieee80211/${dev}/macaddress)"
+			# If we can't identify the path or macaddr, something has gone
+			# badly wrong. We shouldn't create a wifi-device in any case,
+			# as it won't be a valid entry.
+			logger -p 3 -t wifi-morse "Ignoring $dev as unable to find sysfs path or macaddr"
+			continue
 		fi
 
 		uci -q batch <<-EOF
@@ -149,33 +122,42 @@ EOF
 
 		board=$(board_name)
 
-		case "$board" in
-			morse,ekh01-03 |\
-			morse,ekh03v3)
-				bcf=bcf_mf08551.bin
-			;;
-			morse,ekh01v1)
-				bcf=bcf_mf03120.bin
-			;;
-			morse,ekh01v2)
-				bcf=bcf_mf08251.bin
-			;;
-			morse,ekh04v6)
-				bcf=bcf_ekh04_v4.bin
-			;;
-			morse,artini)
-				bcf=bcf_mm_hl1.bin
-			;;
-			morse,ekh01-mf13455)
-				bcf=bcf_mf13455.bin
-	        ;;
-			morse,ekh01-mf15457)
-				bcf=bcf_mf15457_v2.bin
-			;;
+		# board_type is 'we have OTP bits set', in which case it should
+		# automatically load the correct file (bcf_boardtype...) and
+		# we don't need to override.
+		# We force Artini since 4v3 support currently requires 
+		# an explicit BCF file, though currently the AZW modules
+		# do not have OTP bits burnt.
+		if [ "$board_type" -eq 0 ] || [ "$board" = morse,artini ]; then
+			case "$board" in
+				morse,ekh01-03 |\
+				morse,ekh03v3)
+					bcf=bcf_mf08551.bin
+				;;
+				morse,ekh01v1)
+					bcf=bcf_mf03120.bin
+				;;
+				morse,ekh01v2)
+					bcf=bcf_mf08251.bin
+				;;
+				morse,ekh04v6)
+					bcf=bcf_ekh04_v6.bin
+				;;
+				morse,artini)
+					bcf=bcf_mm_hl1.bin
+				;;
+				morse,ekh01-01)
+					bcf=bcf_mf15457.bin
+				;;
+				*)
+					if [[ $path  = *usb* ]]; then
+						bcf=bcf_mf15457.bin
+					fi
+				;;
+			esac
 
-		esac
-
-		[ -n "${bcf}" ] && uci -q set wireless.radio${devidx}.bcf="${bcf}"
+			[ -n "${bcf}" ] && uci -q set wireless.radio${devidx}.bcf="${bcf}"
+		fi
 
 		uci -q commit wireless
 

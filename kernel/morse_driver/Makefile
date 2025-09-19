@@ -9,14 +9,14 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=morse_driver
 PKG_RELEASE=3
 
-PKG_VERSION:=1.14.1
+PKG_VERSION:=1.15.3
 
 PKG_LICENSE:=GPLv2
 PKG_LICENSE_FILES:=LICENSE
 
 PKG_SOURCE_VERSION:=$(PKG_VERSION)
 PKG_SOURCE_URL:=https://github.com/MorseMicro/morse_driver.git
-PKG_HASH:=9eed1c0bc39cf9c1e3c8e109c3e014e6016cc85314630c890e49dd4fccd06b2b
+PKG_HASH:=ffc16e6c1d7b5585dcc806d02aeb7cf76024ed9346f14305ffac5b361d721918
 PKG_SOURCE_PROTO:=git
 
 PKG_MAINTAINER:=Morse Micro
@@ -30,7 +30,7 @@ DTC=$(wildcard $(LINUX_DIR)/scripts/dtc/dtc)
 define KernelPackage/morse
   SUBMENU:=Wireless Drivers
   TITLE:=Morse Micro WIFI HaLow driver
-  DEPENDS:= +kmod-mmc +kmod-mac80211 +kmod-trelay +kmod-lib-crc7 +morse-fw +morse-board-config
+  DEPENDS:= +kmod-mmc +kmod-mac80211 +kmod-trelay +kmod-lib-crc7 morse-fw +morse-board-config +MORSE_USB:kmod-usb-core
   FILES:=\
     $(PKG_BUILD_DIR)/morse.ko \
     $(PKG_BUILD_DIR)/dot11ah/dot11ah.ko
@@ -124,6 +124,13 @@ define Build/Compile
 		M="$(PKG_BUILD_DIR)" \
 		NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
 		modules
+endef
+
+define KernelPackage/morse/install
+	if [ "$(CONFIG_MORSE_USB)" = "y" ]; then \
+		$(INSTALL_DIR) $(1)/etc/hotplug.d/usb; \
+		$(INSTALL_BIN) ./files/morse-usb-device.hotplug $(1)/etc/hotplug.d/usb/10-morse-usb-device; \
+	fi
 endef
 
 $(eval $(call KernelPackage,morse))

@@ -9,22 +9,18 @@ backported as of openwrt 23.05.5.
  wiphy.c | 4 ----
  1 file changed, 4 deletions(-)
 
-diff --git a/wiphy.c b/wiphy.c
-index 0968c6b03be0..a5b38274be2e 100644
 --- a/wiphy.c
 +++ b/wiphy.c
-@@ -1029,11 +1029,7 @@ void morse_wiphy_connected(struct morse *mors, const u8 *bssid)
+@@ -1304,12 +1304,7 @@ void morse_wiphy_connected(struct morse
  	    );
  
  /* TODO: this should only be called if we connected with SAE (or OWE?) */
--#if KERNEL_VERSION(6, 2, 0) <= LINUX_VERSION_CODE
+-#if (KERNEL_VERSION(6, 2, 0) <= MAC80211_VERSION_CODE) || \
+-	(defined(CONFIG_ANDROID) && (KERNEL_VERSION(6, 1, 114) <= LINUX_VERSION_CODE))
  	cfg80211_port_authorized(ndev, bssid, NULL, 0, GFP_KERNEL);
 -#elif KERNEL_VERSION(4, 15, 0) <= LINUX_VERSION_CODE
 -	cfg80211_port_authorized(ndev, bssid, GFP_KERNEL);
 -#endif
  
- 	morse_ps_enable(mors);
- 
--- 
-2.42.0
-
+ 	schedule_work(&mors_vif->connected_work);
+ }

@@ -1,0 +1,31 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+delete_rangetest_mdns_txt_record() {
+    if [[ "$1" =~ rangetest_api_version=.* ]]; then
+        uci del_list uhttpd.main.mdns_txt="$1"
+    fi
+}
+
+# The API_VERSION is defined here rather than in the rangetest
+# backend because something like `ubus call rangetest uci_setup` 
+# which would set the UCI version based on a local variable
+# could not be called from uci-defaults (wrong boot order)
+# and should not be called from an init script as that is 
+# bad practice.
+#
+# Furthermore, this version value below cannot be collected from
+# the makefile PKG_VERSION variable given that it is managed
+# by luci.mk and you cannot override makefile hooks in luci
+# packages to run replacement commands like sed.
+API_VERSION="0.1.0"
+
+# Delete any previous versions in case of upgrade
+config_load uhttpd
+config_list_foreach main mdns_txt delete_rangetest_mdns_txt_record
+
+# Specify a key value pair to be displayed in the TXT record
+# of uhttpd's umdns service advertisement. This will
+# allow rangetest remote device detection & compatibility handling.
+uci add_list uhttpd.main.mdns_txt="rangetest_api_version=$API_VERSION"

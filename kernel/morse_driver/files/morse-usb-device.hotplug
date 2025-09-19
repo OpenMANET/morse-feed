@@ -1,0 +1,88 @@
+#!/bin/sh
+# This approach addresses the scenario where the same Morse USB device is
+# unplugged and replugged into a different USB port on the host device.
+# The goal is to retain the existing configuration and avoid treating it
+# as a new device. To achieve this, we check if the currently configured
+# Morse device is also a USB device, and if so, update its path to the
+# new `DEVPATH`.
+# This ensures that the user can seamlessly continue using the existing
+# wireless configuration after replugging the device into a different USB port.
+# However, there is an important consideration:
+# if a different Morse device is plugged in after the original one is unplugged,
+# it will still inherit the previous device's configuration.
+# Additionally, the system is designed to support only a single Morse device 
+# at any given time, and having multiple Morse devices connected simultaneously
+# is not supported. Hence if 2 USB's are plugged in at a time, the DEVPATH of the
+# one plugged in last will only be configured.
+
+handle_wireless_add() {
+	local config="$1"
+
+	config_get device_type "${config}" type
+	if [ "$device_type" != "morse" ]; then
+		return
+	elif [ $found_morse_device == "1" ]; then
+		logger -t morse-usb-hotplug "More than 1 Morse device detected in wireless configuration."
+		return
+	else
+		found_morse_device=1
+	fi
+
+	config_get device_path "${config}" path
+
+	if [ "${device_path}" != "${DEVPATH}" ] && [[ "${device_path}" == *usb* ]]; then
+		# Update the path to the current DEVPATH and enable the device
+		uci set wireless.${config}.path="${DEVPATH}"
+		uci set wireless.${config}.disabled="0"
+		config_changed=1
+	fi
+}
+
+handle_wireless_remove() {
+	local config="$1"
+
+	config_get device_type "${config}" type
+	if [ "$device_type" != "morse" ]; then
+		return
+	fi
+
+	config_get device_path "${config}" path
+
+	if [ "${device_path}" = "${DEVPATH}" ]; then
+		# Disable the wireless device
+		uci set wireless.${config}.disabled="1"
+		config_changed=1
+	fi
+}
+
+# Check if the USB device matches the Morse device
+# 325b - Vendor ID; 8100 - Product ID; 200 - Revision
+if [ "${PRODUCT}" = "325b/8100/200" ]; then
+
+	UCI_WIRELESS_CONFIG="/etc/config/wireless"
+
+	# Remove the `/devices/platform/` prefix from DEVPATH
+	DEVPATH="${DEVPATH#/devices/platform/}"
+	config_changed=0
+
+	case "${ACTION}" in
+		add)
+			logger -t morse-usb-hotplug "Morse USB device detected."
+			if [ -f "${UCI_WIRELESS_CONFIG}" ]; then
+				config_load wireless
+				config_foreach handle_wireless_add wifi-device
+			fi
+			;;
+		remove)
+			logger -t morse-usb-hotplug "Morse USB device removed."
+			if [ -f "${UCI_WIRELESS_CONFIG}" ]; then
+				config_load wireless
+				config_foreach handle_wireless_remove wifi-device
+			fi
+			;;
+	esac
+	if [ $config_changed == 1 ]; then
+		uci commit wireless
+		/sbin/wifi reconf
+	fi
+fi

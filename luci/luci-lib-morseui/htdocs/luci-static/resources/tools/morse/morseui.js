@@ -1,9 +1,8 @@
 'use strict';
-/* globals baseclass form fs poll rpc uci ui */
+/* globals baseclass form poll rpc uci ui */
 'require form';
 'require ui';
 'require uci';
-'require fs';
 'require rpc';
 'require baseclass';
 'require poll';
@@ -26,26 +25,6 @@ document.querySelector('head').appendChild(E('link', {
 	type: 'text/css',
 	href: L.resourceCacheBusted('tools/morse/css/ui-addons.css'),
 }));
-
-var CBIDppPB = form.DummyValue.extend({
-	renderWidget: function () {
-		return E([], [
-			E('span', { class: 'control-group' }, [
-				E('button', {
-					class: 'cbi-button cbi-button-apply',
-					click: ui.createHandlerFn(this, async function () {
-						console.log('dpp push button');
-						await fs.exec('/morse/scripts/dpp_start.sh');
-						// add a wait to keep the busy indicator showing on the button for 100s.
-						// 100s is the dpp push button timeout.
-						await new Promise(r => setTimeout(r, 100000));
-					}),
-					disabled: this.disabled,
-				}, _('Start')),
-			]),
-		]);
-	},
-});
 
 var UIStandardList = ui.Select.extend({
 	// DO NOT USE: modifying the ui element at a low level like this causes
@@ -312,18 +291,6 @@ var mmRenderElement = function (s, opt, init_val) {
 	switch (opt.type) {
 		case 'text': {
 			o = s.option(form.Value, opt.field, _(opt.description));
-			break;
-		}
-
-		case 'ApDppPB': {
-			o = s.option(CBIDppPB, opt.field, _(opt.description));
-			o.disabled = opt.disabled;
-			break;
-		}
-
-		case 'StaDppPB': {
-			o = s.option(CBIDppPB, opt.field, _(opt.description));
-			o.disabled = opt.disabled;
 			break;
 		}
 
@@ -665,6 +632,14 @@ var CBISSIDListScan = form.Value.extend({
 		this.scanResults = {};
 	},
 
+	isActive(section_id) {
+		// Rendering a placeholder will cause the super.isActive to consider this field
+		// as active, which will mean the form.parse() logic will expect a non-empty value.
+		// This change forces the isActive to return false if a placeholder has been rendered,
+		// which skips the parse() function's logic.
+		return this.super('isActive', arguments) && !this.shouldRenderAsPlaceholder(section_id);
+	},
+
 	onchange(ev, sectionId, value) {
 		if (!this.onchangeWithEncryption) {
 			return;
@@ -755,7 +730,7 @@ var CBISSIDListScan = form.Value.extend({
 		}
 	},
 
-	isNotRequired(sectionId) {
+	shouldRenderAsPlaceholder(sectionId) {
 		return ['monitor', 'none'].includes(this.section.formvalue(sectionId, 'mode'));
 	},
 
@@ -764,7 +739,7 @@ var CBISSIDListScan = form.Value.extend({
 	},
 
 	renderWidget: function (sectionId, optionIndex, cfgvalue) {
-		if (this.isNotRequired(sectionId)) {
+		if (this.shouldRenderAsPlaceholder(sectionId)) {
 			return E('input', { placeholder: 'Not required', disabled: 'true' });
 		} else if (this.isStaMode(sectionId)) {
 			return this.renderStaWidget(sectionId, optionIndex, cfgvalue);

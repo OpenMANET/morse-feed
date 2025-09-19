@@ -56,10 +56,16 @@ if [ "$mode" != sta ] && [ "$mode" != ap ]; then
 	exit 1
 fi
 
-echo "modeswitch: configuring as '$mode' (mm_mode)" > /dev/kmsg
-
 config_load wireless
 config_foreach _find_morse_device wifi-device
+if [ -z "$_morse_device_name" ]; then
+	# Note that 98-morse-wireless-defaults should already have done a sleep at this point.
+	echo "modeswitch: unable to find morse device to switch mode; reboot to retry" > /dev/kmsg
+	exit 1
+fi
+
+echo "modeswitch: configuring as '$mode' (mm_mode)" > /dev/kmsg
+
 uci set "wireless.default_$_morse_device_name.mode=$mode"
 
 if [ "$mode" = "sta" ]; then

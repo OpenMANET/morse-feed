@@ -64,6 +64,13 @@ show_factory_data()
 				;;
 			esac
 		;;
+		glinet,gl-mt3000)
+			case "$1" in
+				default_wifi_key)
+					show_raw_partition_data Factory 0x40 16
+				;;
+			esac
+		;;
 	esac
 }
 

@@ -19,7 +19,8 @@ define Package/morse-bundle
   TITLE:=Morse Micro HaLow Bundle
   DEPENDS:= +morse-boot-prints \
             +gpiod-tools \
-            +@BUSYBOX_CONFIG_PATCH
+            +@BUSYBOX_CONFIG_PATCH \
+            +rsync
   # patch is used by the bcm2711 specific init.d script which
   # helps migrate our config to distroconfig.txt.
 endef

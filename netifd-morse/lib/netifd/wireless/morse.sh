@@ -142,6 +142,13 @@ build_morse_mod_params(){
 
 	MOD_PARAMS="$MOD_PARAMS macaddr_suffix=$ETH0_MAC_SUFFIX"
 
+	#APP-4066: Completely disable powersave for EC USB mode until the driver issue is fixed
+	#APP-4384: Disable USB coredump support to prevent potential host system stalls.
+	if [[ $path  = *usb* ]]; then
+		MOD_PARAMS="$MOD_PARAMS enable_ps=0"
+		MOD_PARAMS="$MOD_PARAMS enable_coredump=N"
+	fi
+
 	MOD_PARAMS=`echo $MOD_PARAMS | xargs`
 }
 
@@ -159,11 +166,11 @@ apply_thin_lmac_optimization() {
 	sysctl -w net.ipv4.neigh.default.gc_thresh1=2048
 	sysctl -w net.ipv4.neigh.default.gc_thresh2=2048
 	sysctl -w net.ipv4.neigh.default.gc_thresh3=2048
-    # Increase ARP table entry timeout
-    sysctl -w net.ipv4.neigh.default.base_reachable_time_ms=3600000
-    # Disable Unnecessary ARP responses
-    sysctl -w net.ipv4.conf.all.arp_ignore=1
-    sysctl -w net.ipv4.conf.all.arp_announce=2
+	# Increase ARP table entry timeout
+	sysctl -w net.ipv4.neigh.default.base_reachable_time_ms=3600000
+	# Disable Unnecessary ARP responses
+	sysctl -w net.ipv4.conf.all.arp_ignore=1
+	sysctl -w net.ipv4.conf.all.arp_announce=2
 	# Increase the number of connections supported per second from 470 - see:
 	# https://stackoverflow.com/questions/410616/increasing-the-maximum-number-of-tcp-ip-connections-in-linux
 	sysctl -w net.ipv4.ip_local_port_range="32768 65535"
@@ -704,6 +711,7 @@ _find_free_ifname()
 morse_service_stop() {
 	# squash "not found" messages when services are not installed
 	service smart_manager stop &> /dev/null
+	service dppd stop &> /dev/null
 }
 
 morse_service_restart() {
@@ -718,6 +726,7 @@ morse_service_restart() {
 
 	# squash "not found" messages when services are not installed.
 	service smart_manager restart &> /dev/null
+	service dppd restart &> /dev/null
 }
 
 morse_setup_ap() {
@@ -742,7 +751,7 @@ morse_setup_ap() {
 
 	uci -q -P /var/state set wireless._${phy}.aplist="${ifname}"
 
-	/sbin/hostapd_s1g -t -B -s ${hostapd_conf_file}
+	/usr/sbin/hostapd_s1g -t -B -s ${hostapd_conf_file}
 	# prplmesh is looking for /var/morse/hostapd_s1g_multiap.conf as hostapd conf file.
 	# So, we add a symlink from the actual conf file for prplmesh.
 	if [ "$multi_ap" -gt 0 ]; then
@@ -852,16 +861,16 @@ morse_setup_adhoc() {
 
 morse_setup_monitor() {
 	local iface_index=$1
-    halow_bw=
+	halow_bw=
 	center_freq=
-    _get_regulatory NA "$country" "$channel" "$op_class"
-    if [ $? -ne 0 ]; then
-        echo "Couldn't find reg for NA in $country with ch=$channel op=$op_class" >&2
-        return
-    fi
-    #multiply the center_freq by 1000 and remove the decimal part
-    center_freq=$(echo "$center_freq * 1000" | bc | awk '{printf "%g\n", $0}')
-    morse_cli -i $ifname channel -c $center_freq ${halow_bw:+-o $halow_bw} ${s1g_prim_chwidth:+-p $(( s1g_prim_chwidth + 1 ))} ${s1g_prim_1mhz_chan_index:+-n $s1g_prim_1mhz_chan_index}
+	_get_regulatory NA "$country" "$channel" "$op_class"
+	if [ $? -ne 0 ]; then
+		echo "Couldn't find reg for NA in $country with ch=$channel op=$op_class" >&2
+		return
+	fi
+	#multiply the center_freq by 1000 and remove the decimal part
+	center_freq=$(echo "$center_freq * 1000" | bc | awk '{printf "%g\n", $0}')
+	morse_cli -i $ifname channel -c $center_freq ${halow_bw:+-o $halow_bw} ${s1g_prim_chwidth:+-p $(( s1g_prim_chwidth + 1 ))} ${s1g_prim_1mhz_chan_index:+-n $s1g_prim_1mhz_chan_index}
 
 	[ -n "$failed" ] || wireless_add_vif "$iface_index" "$ifname"
 	uci -q -P /var/state set wireless._${phy}.umlist="${ifname}"
@@ -1130,10 +1139,10 @@ morse_wpa_supplicant_add() {
 			mkdir -p $_save_dir
 			cp $_config $_save_file
 		fi
-		/sbin/wpa_supplicant_s1g -t -u -D nl80211 -s -i $_ifname -c $_save_file -B
+		/usr/sbin/wpa_supplicant_s1g -t -u -D nl80211 -s -i $_ifname -c $_save_file -B
 	else
 		#need to handle bridge mode??
-		/sbin/wpa_supplicant_s1g -t -D nl80211 -s -i $_ifname -c $_config -B
+		/usr/sbin/wpa_supplicant_s1g -t -D nl80211 -s -i $_ifname -c $_config -B
 	fi
 
 	#React to DPP events (wpa_s1g_dpp_action will persist creds and restart network)

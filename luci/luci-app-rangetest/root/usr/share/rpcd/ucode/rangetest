@@ -120,7 +120,7 @@ function background_iperf3_server(req) {
 
 function background_iperf3_client(req) {
 	const target = req.args.target;
-	const udp = req.args.udp ? '-u -b 40M' : '';
+	const udp = req.args.udp ? '-u -b 40M/30' : '-Z';
 	const reverse = req.args.reverse ? '-R' : '';
 	const time = req.args.time;
 	if (time <= IPERF_OMIT_TIME || time >= OUTPUT_DIR_TTL) { exit(ubus.STATUS_INVALID_ARGUMENT); } 
@@ -169,17 +169,25 @@ function execute_command(command) {
 	};
 }
 
+/* Determine which network interfaces are morse.
+ * 
+ * Loop through each interface in /sys/class/net/
+ * and check that the driver of the linked PHY device 
+ * has a name beginning with "morse". Based on 
+ * morse.sh in netifd-morse.
+ */
 function get_morse_devices() {
-	let devices = [];
+	let morse_devices = [];
 	const ls_entries = fs.lsdir('/sys/class/net/');
-	let ls_entry;
-	for (ls_entry in ls_entries) {
-		const morse_device_path = `/sys/class/net/${ls_entry}/device/morse`;
-		if (fs.access(morse_device_path, 'f')) {
-			push(devices, ls_entry);
+	let device;
+	for (device in ls_entries) {
+		const driver_path = `/sys/class/net/${device}/phy80211/device/driver`;
+		const driver_realpath = fs.readlink(driver_path);
+		if (driver_realpath && match(driver_realpath, /\/drivers\/morse_/)) {
+			push(morse_devices, device);
 		}
 	}
-	return devices;
+	return morse_devices;
 }
 
 function iw_station_dump(req) {

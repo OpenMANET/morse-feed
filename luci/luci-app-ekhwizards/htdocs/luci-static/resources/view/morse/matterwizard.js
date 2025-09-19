@@ -95,7 +95,7 @@ return wizard.AbstractWizardView.extend({
 			morseuci.setNetworkDevices('ahwlan', this.getEthernetPorts().map(p => p.device));
 			uci.set('wireless', morseInterfaceName, 'network', 'ahwlan');
 
-			morseuci.useBridgeIfNeeded('ahwlan');
+			morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 			return 'ahwlan';
 		};
@@ -104,8 +104,8 @@ return wizard.AbstractWizardView.extend({
 			morseuci.setNetworkDevices('lan', this.getEthernetPorts().map(p => p.device));
 			uci.set('wireless', morseInterfaceName, 'network', 'ahwlan');
 
-			morseuci.useBridgeIfNeeded('lan');
-			morseuci.useBridgeIfNeeded('ahwlan');
+			morseuci.createOrRemoveBridgeAsNeeded('lan');
+			morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 			return { ethIface: 'lan', halowIface: 'ahwlan' };
 		};
@@ -136,11 +136,9 @@ return wizard.AbstractWizardView.extend({
 
 		const map = this.map;
 		const {
+			wifiDevices,
 			morseDeviceName,
-			wifiDeviceName,
 			morseInterfaceName,
-			wifiApInterfaceName,
-			wifiStaInterfaceName,
 		} = wizard.readSectionInfo();
 
 		uci.unset('wireless', morseInterfaceName, 'disabled');
@@ -150,15 +148,15 @@ return wizard.AbstractWizardView.extend({
 			uci.add('matter', 'wifi-device', morseDeviceName);
 		}
 
-		if (wifiDeviceName) {
-			uci.set('wireless', wifiApInterfaceName, 'device', wifiDeviceName);
-			uci.set('wireless', wifiApInterfaceName, 'mode', 'ap');
+		for (const wifiDevice of wifiDevices) {
+			uci.set('wireless', wifiDevice.apInterfaceName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.apInterfaceName, 'mode', 'ap');
 
-			if (!uci.get('wireless', wifiStaInterfaceName)) {
-				uci.add('wireless', 'wifi-iface', wifiStaInterfaceName);
+			if (!uci.get('wireless', wifiDevice.staInterfaceName)) {
+				uci.add('wireless', 'wifi-iface', wifiDevice.staInterfaceName);
 			}
-			uci.set('wireless', wifiStaInterfaceName, 'device', wifiDeviceName);
-			uci.set('wireless', wifiStaInterfaceName, 'mode', 'sta');
+			uci.set('wireless', wifiDevice.staInterfaceName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.staInterfaceName, 'mode', 'sta');
 		}
 
 		const morseDeviceSection = map.section(form.NamedSection, morseDeviceName, 'wifi-device');

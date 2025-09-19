@@ -51,12 +51,14 @@ _change_device_defaults() {
 				# It's only safe to enable a morse device if we know what region it should be.
 				# If we do, set up the country and channel, otherwise leave it disable.
 				if [ -n "$mm_region" ]; then
-					# Start on the highest bandwidth channel for the country code. netifd
-					# does fill a channel automatically, but it may be for the wrong region.
+					# Start on the middle channel of the max bandwidth for the country code.
 					# Channels can be queried from iwinfo or the driver, but not if the
 					# device is down, and the device is not up until we have a valid channel.
-					local channel="$(awk < /usr/share/morse-regdb/channels.csv -F, '$1 == "'"$mm_region"'" {print $2, $3}' \
-						| sort -n | awk 'END {print $2}')"
+					local bandwidth="$(awk -F, '$1==region && $2 > max {max=$2} END {print max}' \
+						region="$mm_region" /usr/share/morse-regdb/channels.csv)"
+					local channel="$(awk -F, '$1==region && $2==bw {print $3}' \
+						region="$mm_region" bw="$bandwidth" /usr/share/morse-regdb/channels.csv \
+						| sort -n | awk '{a[NR]=$1} END {print a[int((NR+1)/2)]}')"
 
 					echo "uci-default-morse-wireless: setting $config to $mm_region on $channel" > /dev/kmsg
 					uci batch <<- END
@@ -68,7 +70,6 @@ _change_device_defaults() {
 
 				uci batch <<- END
 					set wireless.default_$config.ssid='$default_ssid'
-					set wireless.default_$config.mesh_id='$default_ssid'
 					set wireless.default_$config.key='$default_wifi_key'
 					set wireless.default_$config.encryption='sae'
 				END
@@ -85,7 +86,6 @@ _change_device_defaults() {
 					delete wireless.$config.disabled
 					set wireless.$config.country='$mm_region'
 					set wireless.default_$config.ssid='$default_ssid'
-					set wireless.default_$config.mesh_id='$default_ssid'
 					set wireless.default_$config.key='$default_wifi_key'
 					set wireless.default_$config.encryption='psk2'
 				END
@@ -93,5 +93,37 @@ _change_device_defaults() {
 	fi
 }
 
+# Wait if we need to for the morse hotplug to finish, since we can
+# be reasonably sure that there should be a morse device.
+# This isn't a proper solution to this problem (i.e. the raciness
+# of the hotplug vs uci-defaults), but we also can't trivially
+# attach to the existing hotplug because the uboot env setup only
+# runs in uci-defaults (and we sometimes need this for
+# persistent_vars_storage.sh).
+wait_for_morse_device() {
+	local found_device=0
+	local attempt
+
+	for attempt in 1 2 3 4 5; do
+		_find_morse_device() {
+			local type
+			config_get type "$1" type
+			if [ "$type" = morse ]; then
+				found_device=1
+			fi
+		}
+
+		config_foreach _find_morse_device wifi-device
+
+		if [ "$found_device" = 1 ]; then
+			return
+		fi
+
+		sleep 1
+		config_load wireless
+	done
+}
+
 config_load wireless
+wait_for_morse_device
 config_foreach _change_device_defaults wifi-device

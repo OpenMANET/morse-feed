@@ -14,7 +14,7 @@ define Package/morse-modeswitch-button
   CATEGORY:=Base system
   TITLE:=Morse Micro Button Functionality
   MAINTAINER:=Morse Micro
-  DEPENDS:=+hostapd_s1g +wpa_supplicant_s1g +wpa_event_listener persistent-vars-storage
+  DEPENDS:=+netifd-morse persistent-vars-storage
 endef
 
 define Package/morse-modeswitch-button/description

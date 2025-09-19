@@ -4,10 +4,6 @@ if [ "$(uci -q get wizard-config.main.server)" != "" ]; then
 	exit 0
 fi
 
-# Disable jail, as it somehow blocks reading from /etc/umdns
-# (and appears to occasionally lead to umdns segfaults).
-uci set umdns.@umdns[0].jail=0
-
 if [ "$(persistent_vars_storage.sh READ mm_mode)" = sta ]; then
 	uci set wizard-config.main.server=0
 	uci set wizard-config.main.client=1

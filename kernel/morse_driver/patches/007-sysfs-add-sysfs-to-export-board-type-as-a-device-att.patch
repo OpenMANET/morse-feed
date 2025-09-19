@@ -24,11 +24,11 @@ cache board id on firmware init for sysfs reporting
  create mode 100644 sysfs.c
  create mode 100644 sysfs.h
 
-Index: morse_driver-rel_1_12_3_2024_May_23/Makefile
+Index: morse_driver-rel_1_15_1_2025_Mar_16/Makefile
 ===================================================================
---- morse_driver-rel_1_12_3_2024_May_23.orig/Makefile
-+++ morse_driver-rel_1_12_3_2024_May_23/Makefile
-@@ -96,6 +96,7 @@ endif
+--- morse_driver-rel_1_15_1_2025_Mar_16.orig/Makefile
++++ morse_driver-rel_1_15_1_2025_Mar_16/Makefile
+@@ -116,6 +116,7 @@ endif
  obj-$(CONFIG_WLAN_VENDOR_MORSE) += morse.o dot11ah/
  
  morse-y = mac.o
@@ -36,11 +36,11 @@ Index: morse_driver-rel_1_12_3_2024_May_23/Makefile
  morse-y += init.o
  morse-y += skbq.o
  morse-y += debug.o
-Index: morse_driver-rel_1_12_3_2024_May_23/firmware.c
+Index: morse_driver-rel_1_15_1_2025_Mar_16/firmware.c
 ===================================================================
---- morse_driver-rel_1_12_3_2024_May_23.orig/firmware.c
-+++ morse_driver-rel_1_12_3_2024_May_23/firmware.c
-@@ -881,6 +881,9 @@ int morse_firmware_init(struct morse *mo
+--- morse_driver-rel_1_15_1_2025_Mar_16.orig/firmware.c
++++ morse_driver-rel_1_15_1_2025_Mar_16/firmware.c
+@@ -888,6 +888,9 @@ int morse_firmware_init(struct morse *mo
  	if (mors->cfg->get_board_type && enable_otp_check)
  		board_id = mors->cfg->get_board_type(mors);
  
@@ -50,10 +50,10 @@ Index: morse_driver-rel_1_12_3_2024_May_23/firmware.c
  	if (strlen(board_config_file) > 0) {
  		n = snprintf(bcf_path, sizeof(bcf_path), "%s/%s", MORSE_FW_DIR, board_config_file);
  	} else if (strlen(mors->board_serial) > 0) {
-Index: morse_driver-rel_1_12_3_2024_May_23/mac.c
+Index: morse_driver-rel_1_15_1_2025_Mar_16/mac.c
 ===================================================================
---- morse_driver-rel_1_12_3_2024_May_23.orig/mac.c
-+++ morse_driver-rel_1_12_3_2024_May_23/mac.c
+--- morse_driver-rel_1_15_1_2025_Mar_16.orig/mac.c
++++ morse_driver-rel_1_15_1_2025_Mar_16/mac.c
 @@ -14,6 +14,7 @@
  #include "mac.h"
  #include "s1g_ies.h"
@@ -62,9 +62,9 @@ Index: morse_driver-rel_1_12_3_2024_May_23/mac.c
  #include "debug.h"
  #include "command.h"
  #include "vendor.h"
-@@ -6422,6 +6423,10 @@ int morse_mac_register(struct morse *mor
- 	INIT_WORK(&mors->driver_restart, morse_mac_restart_work);
+@@ -6878,6 +6879,10 @@ int morse_mac_register(struct morse *mor
  	INIT_WORK(&mors->health_check, morse_health_check_work);
+ 	INIT_WORK(&mors->hw_stop, morse_hw_stop_work);
  
 +	ret = morse_sysfs_init(mors);
 +	if (ret)
@@ -73,19 +73,19 @@ Index: morse_driver-rel_1_12_3_2024_May_23/mac.c
  	ret = morse_init_debug(mors);
  	if (ret)
  		MORSE_ERR(mors, "Unable to create debugfs files\n");
-@@ -6593,6 +6598,7 @@ static void morse_mac_deinit(struct mors
+@@ -7063,6 +7068,7 @@ static void morse_mac_deinit(struct mors
  
  void morse_mac_unregister(struct morse *mors)
  {
 +	morse_sysfs_free(mors);
+ 	morse_led_exit(mors);
  	morse_deinit_debug(mors);
  	morse_ps_disable(mors);
- 
-Index: morse_driver-rel_1_12_3_2024_May_23/morse.h
+Index: morse_driver-rel_1_15_1_2025_Mar_16/morse.h
 ===================================================================
---- morse_driver-rel_1_12_3_2024_May_23.orig/morse.h
-+++ morse_driver-rel_1_12_3_2024_May_23/morse.h
-@@ -979,6 +979,7 @@ struct morse {
+--- morse_driver-rel_1_15_1_2025_Mar_16.orig/morse.h
++++ morse_driver-rel_1_15_1_2025_Mar_16/morse.h
+@@ -1165,6 +1165,7 @@ struct morse {
  	struct morse_debug debug;
  
  	char *board_serial;
@@ -93,10 +93,10 @@ Index: morse_driver-rel_1_12_3_2024_May_23/morse.h
  
  	/* Stored Channel Information, sta_type, enc_mode, RAW */
  	struct morse_custom_configs custom_configs;
-Index: morse_driver-rel_1_12_3_2024_May_23/sysfs.c
+Index: morse_driver-rel_1_15_1_2025_Mar_16/sysfs.c
 ===================================================================
 --- /dev/null
-+++ morse_driver-rel_1_12_3_2024_May_23/sysfs.c
++++ morse_driver-rel_1_15_1_2025_Mar_16/sysfs.c
 @@ -0,0 +1,46 @@
 +/*
 + * Copyright 2024 Morse Micro
@@ -144,10 +144,10 @@ Index: morse_driver-rel_1_12_3_2024_May_23/sysfs.c
 +{
 +	device_remove_file(mors->dev, &dev_attr_board_type);
 +}
-Index: morse_driver-rel_1_12_3_2024_May_23/sysfs.h
+Index: morse_driver-rel_1_15_1_2025_Mar_16/sysfs.h
 ===================================================================
 --- /dev/null
-+++ morse_driver-rel_1_12_3_2024_May_23/sysfs.h
++++ morse_driver-rel_1_15_1_2025_Mar_16/sysfs.h
 @@ -0,0 +1,9 @@
 +/*
 + * Copyright 2024 Morse Micro

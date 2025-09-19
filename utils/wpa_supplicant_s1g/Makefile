@@ -10,13 +10,13 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=wpa_supplicant_s1g
 PKG_RELEASE=2
 
-PKG_VERSION:=1.14.1
+PKG_VERSION:=1.15.3
 
 PKG_LICENSE:=BSD-3-Clause
 
 PKG_SOURCE_VERSION:=$(PKG_VERSION)
 PKG_SOURCE_URL:=https://github.com/MorseMicro/hostap.git
-PKG_HASH:=5ad24b655857051690dcab437377efbdfcfeb82c185dc7e36b3bc905554b3da8
+PKG_HASH:=13f8f9a14d99e53c5280ccc43492570f6803d87a326416c92de903f69448b9d5
 PKG_SOURCE_PROTO:=git
 
 PKG_MAINTAINER:=Morse Micro <info@morsemicro.com>
@@ -173,9 +173,9 @@ define Build/Compile
 endef
 
 define Package/wpa_supplicant_s1g/install
-	$(INSTALL_DIR) $(1)/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wpa_supplicant/wpa_supplicant_s1g $(1)/sbin/
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wpa_supplicant/wpa_cli_s1g $(1)/sbin/
+	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wpa_supplicant/wpa_supplicant_s1g $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/wpa_supplicant/wpa_cli_s1g $(1)/usr/sbin/
 
 ifeq ($(CONFIG_MORSE_WPA_SUPPLICANT_S1G_DBUS),y)
 	$(INSTALL_DIR) $(1)/etc/dbus-1/system.d/

@@ -36,6 +36,7 @@ var ProgressBar = baseclass.extend({
 	reset(newText) {
 		this.percentage = 0;
 		this.text = newText;
+		this.progressBarElement.style.backgroundColor = '#e9d9f2'; // The default light-purple color that indicates the initial state.
 		this.__update();
 	},
 
@@ -45,9 +46,15 @@ var ProgressBar = baseclass.extend({
 		this.__update();
 	},
 
+	setErrorState(newText) {
+		this.progressBarContainer.title = newText;
+		this.progressBarElement.style.backgroundColor = '#f2d9d9'; // A mild red color that indicates the error state.
+	},
+
 	set text(newText) {
 		this.__update();
 	},
+
 });
 
 var ProgressBarFactory = baseclass.extend({

@@ -9,12 +9,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=wireshark
 PKG_RELEASE:=1
-PKG_VERSION:=3.6.10
+PKG_VERSION:=4.4.2
 
-# https://www.wireshark.org/download/src/all-versions/wireshark-3.6.10.tar.xz
+# https://www.wireshark.org/download/src/all-versions/wireshark-4.4.2.tar.xz
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
 PKG_SOURCE_URL:=https://www.wireshark.org/download/src/all-versions/
-PKG_MD5SUM:=ab3f68b524a4aa788fdf94442c288b01
+# https://www.wireshark.org/download/SIGNATURES-4.4.2.txt
+PKG_HASH:=6053d97499c83feb87ce1d7f732d9c889c6c18bb334de67e65dca11483b0514e
 
 
 PKG_LICENSE:=GPL-2.0

@@ -77,7 +77,43 @@ const iwinfoInfo = rpc.declare({
 	params: ['device'],
 });
 
-let availableRemoteDevices = {};
+let knownRemoteDevices = {};
+
+/**
+ * Update the available remote devices stored in the global variable `knownRemoteDevices`.
+ */
+const updateKnownRemoteDevices = async () => {
+	Object.keys(knownRemoteDevices).forEach(ipv4Address => knownRemoteDevices[ipv4Address]['available'] = false);
+
+	// Fully restarting the service clears the cache of old advertisements. TODO: APP-3717.
+	// Also, if run too early the umdns service is not yet ready.
+	await new Promise(resolveFn => window.setTimeout(resolveFn, 500));
+	fs.exec_direct('/etc/init.d/umdns', ['restart']);
+	await umdnsUpdate();
+	// Similar issue to above, docs indicate we should "wait a couple of seconds"
+	// after running umdns update. umdns update doesn't seem to wait for us,
+	// instead it returns after sending mdns queries, but before receiving the responses.
+	// Similar cache updating issue to above. TODO: APP-3717.
+	await new Promise(resolveFn => window.setTimeout(resolveFn, 1500));
+	let report = await umdnsBrowse(true);
+
+	if (Object.keys(report).length === 0) {
+		ui.addNotification(_('Discovery error'), E('pre', {}, _('No compatible remote devices found!')), 'error');
+		return;
+	}
+
+	for (const [hostname, deviceInfo] of Object.entries(report)) {
+		for (const ipv4Address of deviceInfo.ipv4) {
+			// Ignore the HaLowLink 1 management address as it always fails.
+			if (ipv4Address === '10.22.121.111') {
+				continue;
+			}
+
+			knownRemoteDevices[ipv4Address] = { hostname, ipv4Address, deviceInfo };
+			knownRemoteDevices[ipv4Address]['available'] = true;
+		}
+	}
+};
 
 const iperf3ResultsTemplate = {
 	iperf3: {
@@ -229,22 +265,21 @@ async function collectStatistics(testResults, remoteRangetestDevice) {
  *
  * This functionality should eventually be transferred to the backend.
  */
-async function runRangetest(cancelPromise, configuration, testProgressBar) {
+async function runRangetest(cancelPromise, configuration, testProgressBar, alertMessageContainer) {
 	const {
 		advanced: {
 			protocol: protocols,
 			direction: directions,
 		},
 		basic: {
-			remoteDeviceInfo: {
-				ipv4: [remoteIp],
-			},
 			remoteDevicePassword: remotePassword,
+			remoteDeviceIpAddress: remoteIp,
 		},
 	} = configuration;
 	let remoteRangetestDevice = remoteDevice.load(remoteIp, remotePassword);
 
-	let testResults = { ...testResultsTemplate };
+	// This is the Mozilla foundation's recommended method to make JSON deep copies.
+	let testResults = JSON.parse(JSON.stringify(testResultsTemplate));
 	testResults.id = Math.random().toString(16).slice(8);
 	testResults.configuration = configuration;
 	testResults.timestamp = new Date().toISOString();
@@ -266,7 +301,7 @@ async function runRangetest(cancelPromise, configuration, testProgressBar) {
 
 			const iperf3RemoteResponse = await remoteRangetestDevice.backgroundIperf3Server();
 			const iperf3LocalResponse = await backgroundIperf3Client(remoteIp, (protocol === 'udp'), (direction === 'receive'), iperf3TestTime);
-			const iperf3LocalResults = await waitForIperf3Results(iperf3LocalResponse.id, iperf3TestTime, iperf3PollInterval, maxSubtestIncrements, percentPerIncrement, testProgressBar, cancelPromise);
+			const iperf3LocalResults = await waitForIperf3Results(iperf3LocalResponse.id, iperf3TestTime, iperf3PollInterval, maxSubtestIncrements, percentPerIncrement, testProgressBar, cancelPromise, alertMessageContainer);
 			const iperf3RemoteResults = await remoteRangetestDevice.getBackground(iperf3RemoteResponse.id);
 
 			testResults['local']['iperf3'][protocol][direction]['end'] = iperf3LocalResults?.end;
@@ -320,14 +355,49 @@ function saveLocalTest(testId, data) {
 	}
 }
 
-function exportTestDataAsJSONFile(data, fileName) {
-	const dataString = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
-	var downloadAnchorNode = document.createElement('a');
+function exportTestDataAsJSONFile(testData, fileName) {
+	const dataString = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(testData, null, 2));
+	let downloadAnchorNode = document.createElement('a');
 	downloadAnchorNode.setAttribute('href', dataString);
 	downloadAnchorNode.setAttribute('download', `${fileName}.json`);
 	document.body.appendChild(downloadAnchorNode);
 	downloadAnchorNode.click();
 	downloadAnchorNode.remove();
+}
+
+function exportResultsSummaryAsCSVFile(allTestData, fileName) {
+	const headerBlocklist = ['rawData', 'export'];
+	let resultsSummaries = [];
+	allTestData.forEach((testData) => {
+		resultsSummaries.push(parseResultsSummaryRowData(testData));
+	});
+
+	const csvColumnNames = Object.keys(resultsSummaries[0]).filter(columnName => !headerBlocklist.includes(columnName));
+	const csvRows = resultsSummaries.map((summary) => {
+		return csvColumnNames.map((header) => {
+			switch (typeof summary[header]) {
+				case 'string':
+					return `"${summary[header]}"`;
+				case 'number':
+				case 'boolean':
+					return summary[header];
+				case 'undefined':
+					return '';
+				default:
+					throw new Error('Unexpected data type in CSV export.');
+			}
+		});
+	});
+	const csvData = [csvColumnNames.join(','), ...csvRows.map(row => row.join(','))].join('\n');
+
+	const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+	const url = URL.createObjectURL(blob);
+	const downloadAnchor = document.createElement('a');
+	downloadAnchor.setAttribute('href', url);
+	downloadAnchor.setAttribute('download', fileName);
+	document.body.appendChild(downloadAnchor);
+	downloadAnchor.click();
+	document.body.removeChild(downloadAnchor);
 }
 
 function formatFilenameDatetime(date) {
@@ -336,16 +406,31 @@ function formatFilenameDatetime(date) {
 		+ `${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
 }
 
-async function waitForIperf3Results(iperf3ClientId, duration, pollInterval, remainingIncrements, percentPerIncrement, testProgressBar, cancelPromise) {
+function displayWarningMessage(alertMessageContainer, testString) {
+	alertMessageContainer.appendChild(E('div', { class: 'alert-message-fade-in warning' }, [
+		E('p', {}, _('The %s test took longer than expected, possibly due to a slow connection. If the test doesn\'t terminate automatically, you may need to abort the test.').format(testString)),
+		E('button', {
+			class: 'cbi-button cbi-button-action',
+			click: function () { this.parentElement.style.display = 'none'; },
+		}, [_('Dismiss')]),
+	]));
+}
+
+async function waitForIperf3Results(iperf3ClientId, duration, pollInterval, remainingIncrements, percentPerIncrement, testProgressBar, cancelPromise, alertMessageContainer) {
 	// 30% margin of safety
 	const timeout = (duration * 1300);
 	const startTime = Date.now();
 	let clientPollResponse, completed = false;
+	let notificationShown = false;
 
 	while (!completed) {
 		if (Date.now() - startTime > timeout) {
-			testProgressBar.reset('Test Failed');
-			throw new Error(`Range test client has timed out`);
+			let testString = testProgressBar.text;
+			testProgressBar.setErrorState(_('%s (Test took too long)').format(testString));
+			if (!notificationShown) {
+				displayWarningMessage(alertMessageContainer, testString);
+				notificationShown = true;
+			}
 		}
 
 		let timeoutPromise = await Promise.race([cancelPromise, new Promise(resolve => setTimeout(resolve, pollInterval * 1000))]);
@@ -393,7 +478,7 @@ function parseResultsSummaryRowData(data) {
 		if (typeof value === 'number' && !isNaN(value)) {
 			return (value / 1e6).toFixed(2);
 		}
-		return '-';
+		return undefined;
 	};
 
 	// Only display the receiving end of the iperf for data.
@@ -404,22 +489,23 @@ function parseResultsSummaryRowData(data) {
 	const tcpThroughputSend = parseThroughputValue(remote.iperf3.tcp.send.end?.sum_received?.bits_per_second);
 	const tcpThroughputReceive = parseThroughputValue(local.iperf3.tcp.receive.end?.sum_sent?.bits_per_second);
 
-	const udpThroughput = `${udpThroughputSend} / ${udpThroughputReceive}`;
-	const tcpThroughput = `${tcpThroughputSend} / ${tcpThroughputReceive}`;
-
 	const localSignalStrength = data.local.iwinfoInfo?.signal;
+	const remoteDeviceIpAddress = data.configuration.basic?.remoteDeviceIpAddress;
+	const remoteDeviceHostname = data.configuration.basic?.remoteDeviceInfo?.hostname;
 
 	return {
 		id: data.id,
 		timestamp: timestamp,
-		remoteHostname: data.configuration.basic?.remoteDeviceHostname,
+		remoteHost: `${remoteDeviceIpAddress} ${remoteDeviceHostname ? `(${remoteDeviceHostname})` : ''}`,
 		description: data.configuration.basic?.description,
 		distance: data.configuration.basic?.range,
 		location: locationURL,
 		bandwidth: bandwidth,
 		channel: channel,
-		udpThroughput: udpThroughput,
-		tcpThroughput: tcpThroughput,
+		udpThroughputSend: udpThroughputSend,
+		udpThroughputReceive: udpThroughputReceive,
+		tcpThroughputSend: tcpThroughputSend,
+		tcpThroughputReceive: tcpThroughputReceive,
 		signalStrength: localSignalStrength,
 		export: true,
 		rawData: data,
@@ -454,9 +540,11 @@ return view.extend({
 	async handleStartTest(ev, cancelPromise) {
 		try {
 			await this.basicTestConfigurationForm.parse();
-			const hostname = this.rangetestConfiguration.basic.remoteDeviceHostname;
-			this.rangetestConfiguration.basic.remoteDeviceInfo = availableRemoteDevices[hostname];
-			const testResults = await runRangetest(cancelPromise, this.rangetestConfiguration, this.testProgressBar);
+			const remoteHostIp = this.rangetestConfiguration.basic.remoteDeviceIpAddress;
+			this.rangetestConfiguration.basic.remoteDeviceInfo = knownRemoteDevices[remoteHostIp];
+			// Remove all previous alert messages before starting a new test
+			this.alertMessageContainer.replaceChildren();
+			const testResults = await runRangetest(cancelPromise, this.rangetestConfiguration, this.testProgressBar, this.alertMessageContainer);
 			this.addResultsSummaryRow(testResults);
 		} catch (error) {
 			console.error(error);
@@ -464,61 +552,47 @@ return view.extend({
 		}
 	},
 
+	RemoteDeviceSelect: form.Value.extend({
+		__init__: function () {
+			this.super('__init__', arguments);
+			this.orientation = 'horizontal';
+		},
+
+		renderWidget: function (sectionId, optionIndex, cfgvalue) {
+			this.clear();
+			for (const [ipv4Address, deviceInfo] of Object.entries(knownRemoteDevices)) {
+				if (deviceInfo.available) {
+					this.value(ipv4Address, `${ipv4Address} (${deviceInfo.hostname})`);
+					cfgvalue = cfgvalue || ipv4Address;
+				}
+			}
+
+			return E('div', { class: 'control-group' }, [
+				form.Value.prototype.renderWidget.call(this, sectionId, optionIndex, cfgvalue),
+				E('button', {
+					'id': 'discover-button',
+					'class': 'cbi-button cbi-button-action',
+					'title': _('Scan for wifi networks'),
+					'aria-label': _('Scan for wifi networks'),
+					'click': ui.createHandlerFn(this, async () => {
+						await updateKnownRemoteDevices();
+						this.renderUpdate(sectionId);
+					}),
+				}, '\u{1F50D}'),
+			]);
+		},
+	}),
+
 	basicTestConfigurationForm() {
 		const sectionId = 'basic';
 		const m = new form.JSONMap(this.rangetestConfiguration);
 		const s = m.section(form.NamedSection, sectionId);
 		let o;
 
-		const remoteDeviceSelect = s.option(form.ListValue, 'remoteDeviceHostname', _('Remote device'), _('The remote device which this test will be conducted against'));
-		remoteDeviceSelect.readonly = true;
-
-		const updateRemoteDeviceSelectOptions = async (remoteDeviceSelect, sectionId) => {
-			remoteDeviceSelect.clear();
-			// Fully restarting the service clears the cache of old advertisements. TODO: APP-3717.
-			fs.exec_direct('/etc/init.d/umdns', ['restart']);
-			await umdnsUpdate();
-			// Similar issue to above, docs indicate we should "wait a couple of seconds"
-			// after running umdns update. umdns update doesn't seem to wait for us,
-			// instead it returns after sending mdns queries, but before receiving the responses.
-			// Similar cache updating issue to above. TODO: APP-3717.
-			await new Promise(resolveFn => window.setTimeout(resolveFn, 2000));
-			let report = await umdnsBrowse(true);
-
-			if (!report || Object.keys(report).length == 0) {
-				remoteDeviceSelect.readonly = true;
-				remoteDeviceSelect.renderUpdate(sectionId);
-				ui.addNotification(_('Discovery error'), E('pre', {}, _('No compatible remote devices found!')), 'error');
-				return;
-			}
-
-			for (const [hostname, deviceInfo] of Object.entries(report)) {
-				const ipv4 = deviceInfo.ipv4;
-				availableRemoteDevices[hostname] = deviceInfo;
-
-				const optionName = `${hostname} (${ipv4})`;
-				remoteDeviceSelect.value(hostname, optionName);
-			}
-			remoteDeviceSelect.readonly = false;
-			remoteDeviceSelect.renderUpdate(sectionId);
-		};
-
-		// Extend the select element to also render a discover button
-		const originalSelectRenderWidget = remoteDeviceSelect.renderWidget;
-		remoteDeviceSelect.renderWidget = function (sectionId, optionIndex, cfgvalue) {
-			const dropdown = originalSelectRenderWidget.call(this, sectionId, optionIndex, cfgvalue);
-			const button = E('button', {
-				id: 'discover-button',
-				class: 'cbi-button cbi-button-action',
-				click: ui.createHandlerFn(this, async () => {
-					await updateRemoteDeviceSelectOptions(remoteDeviceSelect, sectionId);
-				}),
-			}, [_('Discover')]);
-			return E('div', { style: 'display: flex; align-items: flex-start; gap: 1em;' }, [
-				dropdown,
-				button,
-			]);
-		};
+		o = s.option(this.RemoteDeviceSelect, 'remoteDeviceIpAddress', _('Remote Device'), _('Select the remote device to test against'));
+		o.datatype = 'ip4addr';
+		o.rmempty = false;
+		o.optional = false;
 
 		o = s.option(form.Value, 'remoteDevicePassword', _('Password'), _('Remote device password'));
 		o.datatype = 'string';
@@ -532,7 +606,7 @@ return view.extend({
 
 		let localDeviceCoordinatesInput = s.option(form.Value, 'localDeviceCoordinates', _('Local device coordinates'), _('Optional: Must be provided in Decimal Degrees (DD) format, used by Google Maps'));
 		localDeviceCoordinatesInput.validate = validateDecimalDegrees;
-		localDeviceCoordinatesInput.placeholder = '-33.885553, 151.211138';	// MM Sydney office
+		localDeviceCoordinatesInput.placeholder = '-33.885553, 151.211138'; // MM Sydney office
 		localDeviceCoordinatesInput.optional = true;
 
 		let remoteDeviceCoordinatesInput = s.option(form.Value, 'remoteDeviceCoordinates', _('Remote device coordinates'), _('Optional: Must be provided in Decimal Degrees (DD) format, used by Google Maps'));
@@ -581,6 +655,8 @@ return view.extend({
 		this.progressBarContainer = E('div', { class: 'cbi-progressbar', style: 'margin: 0 2em 0 2em; visibility: hidden;' }, this.progressBarElement = E('div', { style: 'width: 0%' }));
 		this.testProgressBar = progressBar.new(this.progressBarContainer, this.progressBarElement);
 
+		this.alertMessageContainer = E('div', { class: 'alert-container' });
+
 		return m;
 	},
 
@@ -625,7 +701,7 @@ return view.extend({
 		let o;
 
 		s.handleRemove = async function (sectionId, _ev) {
-			var configName = this.map.config;
+			let configName = this.map.config;
 			const testId = this.map.data.data[sectionId].id;
 			ui.showModal(_('Confirm Deletion'), [
 				E('p', {}, _('Are you sure?')),
@@ -652,7 +728,7 @@ return view.extend({
 		o.datatype = 'string';
 		o.readonly = true;
 
-		o = s.option(form.DummyValue, 'remoteHostname', _('Remote Hostname'));
+		o = s.option(form.DummyValue, 'remoteHost', _('Remote Host'));
 		o.datatype = 'string';
 		o.readonly = true;
 
@@ -687,11 +763,19 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.readonly = true;
 
-		o = s.option(form.DummyValue, 'udpThroughput', _('UDP Throughput (Mbps) (Send/Receive)'));
+		o = s.option(form.DummyValue, 'udpThroughputSend', _('UDP Send Throughput (Mbps)'));
 		o.datatype = 'string';
 		o.readonly = true;
 
-		o = s.option(form.DummyValue, 'tcpThroughput', _('TCP Throughput (Mbps) (Send/Receive)'));
+		o = s.option(form.DummyValue, 'udpThroughputReceive', _('UDP Receive Throughput (Mbps)'));
+		o.datatype = 'string';
+		o.readonly = true;
+
+		o = s.option(form.DummyValue, 'tcpThroughputSend', _('TCP Send Throughput (Mbps)'));
+		o.datatype = 'string';
+		o.readonly = true;
+
+		o = s.option(form.DummyValue, 'tcpThroughputReceive', _('TCP Receive Throughput (Mbps)'));
 		o.datatype = 'string';
 		o.readonly = true;
 
@@ -699,7 +783,7 @@ return view.extend({
 		o.datatype = 'integer';
 		o.readonly = true;
 
-		const downloadButton = s.option(form.DummyValue, 'export', _('Data'));
+		const downloadButton = s.option(form.DummyValue, 'export', _('Raw Data (JSON)'));
 		downloadButton.editable = true;
 		downloadButton.renderWidget = function (sectionId, _optionIndex, _cfgvalue) {
 			return E('div', { style: 'display: flex; align-items: flex-start; gap: 1em;' }, [
@@ -750,6 +834,7 @@ return view.extend({
 				E('button', { class: 'cbi-button cbi-button-action', click: ui.createCancellableHandlerFn(this, this.handleStartTest, _('Stop')) }, [_('Start Test')]),
 				this.progressBarContainer,
 			]),
+			this.alertMessageContainer,
 		]);
 		this.resultsSummarySection = E('section', { class: 'cbi-section' }, [
 			E('h3', {}, _('Results Summary')),
@@ -762,8 +847,39 @@ return view.extend({
 						ui.addNotification(null, E('pre', {}, 'No test data available!'));
 						return;
 					}
-					exportTestDataAsJSONFile(allTests, `rangetest_all_data_${filenameDatetimeString}`);
-				}) }, [_('Download All Data')]),
+
+					exportResultsSummaryAsCSVFile(allTests, `rangetest_all_data_${filenameDatetimeString}`);
+				}) }, [_('Download Results Summary (CSV)')]),
+				E('button', { class: 'cbi-button cbi-button-negative', click: ui.createHandlerFn(this, async () => {
+					const allTests = await getLocalTests();
+					if (allTests.length === 0) {
+						ui.addNotification(null, E('pre', {}, 'No test data available!'));
+						return;
+					}
+					ui.showModal(_('Confirm Deletion'), [
+						E('p', {}, _('Are you sure?')),
+						E('div', { class: 'right' }, [
+							E('button', {
+								class: 'cbi-button cbi-button-negative',
+								click: ui.createHandlerFn(this, async () => {
+									const allTests = await getLocalTests();
+									for (const test of allTests) {
+										await deleteLocalTest(test.id);
+									}
+									this.resultsSummaryTable.data.data = {};
+									this.resultsSummaryTable.load();
+									this.resultsSummaryTable.save();
+									ui.hideModal();
+								}),
+							}, _('Delete All')),
+							' ',
+							E('button', {
+								class: 'cbi-button',
+								click: ui.hideModal,
+							}, _('Cancel')),
+						]),
+					]);
+				}) }, [_('Delete All')]),
 			]),
 		]);
 

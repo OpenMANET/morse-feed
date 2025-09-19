@@ -26,11 +26,10 @@
 
 'use strict';
 
-/* globals configDiagram dom firewall form fs morseui network poll prplmeshTopology rpc ui uci view */
+/* globals configDiagram dom firewall form morseuci morseui network poll prplmeshTopology rpc ui uci view */
 'require dom';
 'require firewall';
 'require form';
-'require fs';
 'require network';
 'require rpc';
 'require uci';
@@ -39,6 +38,7 @@
 'require poll';
 'require view.home.prplmesh-topology as prplmeshTopology';
 'require custom-elements.morse-config-diagram as configDiagram';
+'require tools.morse.uci as morseuci';
 'require tools.morse.morseui as morseui';
 'require view.morse.wpsbuttonelement';
 
@@ -71,6 +71,19 @@ const callSessionAccess = rpc.declare({
 	method: 'access',
 	params: ['scope', 'object', 'function'],
 	expect: { access: false },
+});
+
+const callDPPPushButton = rpc.declare({
+	object: 'dpp',
+	method: 'push_button',
+	params: ['mode'],
+	expect: { '': {} },
+});
+
+const callDPPGetLockoutSecs = rpc.declare({
+	object: 'dpp',
+	method: 'get_lockout_secs',
+	expect: { lockout_remaining_secs: 0 },
 });
 
 // Sadly, we add our own call to apply, because:
@@ -128,6 +141,7 @@ const MORSE_MODES = {
 	'sta-extender': _('HaLow Extender'),
 	'mesh-router': _('HaLow 11s Mesh Router'),
 	'mesh-extender': _('HaLow 11s Mesh Extender'),
+	'mesh-gate': _('HaLow 11s Mesh Gate'),
 	'ap-easymesh': _('HaLow EasyMesh Controller'),
 	'sta-easymesh': _('HaLow EasyMesh Agent'),
 	'sta-matter': _('Matter'),
@@ -252,6 +266,29 @@ function getBestDevice(netIface) {
 
 	return devices.reduce((best, current) =>
 		scoreDevice(current.getWifiNetwork()) > scoreDevice(best.getWifiNetwork()) ? current : best);
+}
+
+async function startDPP(mode) {
+	const result = await callDPPPushButton(mode);
+	if (!result || (result && result.error_code)) {
+		let errorMessage = _('Unable to start DPP (internal error). Check system logs or reset device.');
+		if (result && result.error_code == 'lockout') {
+			errorMessage = _('DPP button has already been pressed. Wait at least %d seconds to avoid session overlaps.').format(result.lockout_remaining_secs);
+		}
+		ui.showModal(_('Unable to start DPP'), [
+			E('p', {}, [E('em', { style: 'white-space:pre-wrap' }, errorMessage)]),
+			E('div', { class: 'right' },
+				E('button', { class: 'cbi-button', click: ui.hideModal }, [_('Dismiss')]),
+			),
+		]);
+	}
+
+	// Spin until we're not locked out (i.e. GetLockoutSecs returns 0),
+	// even if the call failed (so we catch existing lockouts).
+	// If we succeed, then lockout will finish.
+	while (await callDPPGetLockoutSecs()) {
+		await new Promise(resolveFn => window.setTimeout(resolveFn, 5000));
+	}
 }
 
 function createSystemCard(boardinfo) {
@@ -391,9 +428,7 @@ async function renderUplinkWifiConnectMethods(id, hasQRCode, wifiNetwork, isUp) 
 								// TODO hack - sleep so we have time for config to reload before triggering DPP.
 								await new Promise(resolveFn => window.setTimeout(resolveFn, 3 * 1000));
 							}
-							await fs.exec('/morse/scripts/dpp_start.sh');
-							// We currently have no good feedback mechanism, so just wait 100 secs.
-							await new Promise(resolveFn => window.setTimeout(resolveFn, 100 * 1000));
+							await startDPP('sta');
 							await updateUplinkWifiConnectMethods(hasQRCode, element);
 						}),
 					}, _('Start DPP push button')),
@@ -727,13 +762,19 @@ function createLocalNetworksCard(networks, dhcpLeases, hostHints) {
 /* Card which focuses on connected devices if it's possible there is more
  * than one (e.g. ap/mesh/adhoc).
  */
-function createAssoclistCard(wifiNetwork, hostHints, hasQRCode) {
+function createAssoclistCard(wifiNetwork, hostHints) {
 	const mode = wifiNetwork.getMode();
 	const netIface = wifiNetwork.getNetwork();
 	const bitrate = wifiNetwork.getBitRate();
 	const wifiName = getWifiName(wifiNetwork);
 
-	const associatedDevices = wifiNetwork.assoclist.map(d => ({
+	const associatedDevices = wifiNetwork.assoclist.filter(
+		// 80211s mesh devices show up in this list when they are not fully
+		// connected, for example if they have the wrong credentials. This is
+		// only intended to filter out that case. For other modes the station
+		// does not show in the list at all if it has the wrong credentials.
+		d => d.authorized,
+	).map(d => ({
 		mac: d.mac,
 		hostname: hostHints.getHostnameByMACAddr(d.mac),
 		ip: hostHints.getIPAddrByMACAddr(d.mac),
@@ -747,6 +788,7 @@ function createAssoclistCard(wifiNetwork, hostHints, hasQRCode) {
 	const hasIp6 = associatedDevices.some(d => d.ip6);
 	const authentication = wifiNetwork.ubus('net', 'iwinfo', 'encryption')?.authentication || [];
 	const wifiPassword = (authentication.includes('sae') || authentication.includes('psk')) && wifiNetwork.get('key');
+	const hasDppd = L.hasSystemFeature('morsedppd');
 
 	let connectMethods;
 	if (wifiPassword) {
@@ -788,17 +830,13 @@ function createAssoclistCard(wifiNetwork, hostHints, hasQRCode) {
 				// Currently, we only support DPP on HaLow.
 				// We disable this if there is no QRCode on this device, as if this is not
 				// there we likely aren't running dppd (currently true on HaLowLink 1).
-				mode === 'ap' && hasQRCode && isHaLow(wifiNetwork) && E('dt', _('DPP QR Code')),
-				mode === 'ap' && hasQRCode && isHaLow(wifiNetwork) && E('dd', _('Scan the Client QR Code in the app.')),
+				mode === 'ap' && hasDppd && isHaLow(wifiNetwork) && E('dt', _('DPP QR Code')),
+				mode === 'ap' && hasDppd && isHaLow(wifiNetwork) && E('dd', _('Scan the Client QR Code in the app.')),
 				mode === 'ap' && isHaLow(wifiNetwork) && E('dt', _('DPP Push button')),
 				mode === 'ap' && isHaLow(wifiNetwork) && E('dd', [
 					E('button', {
 						class: 'cbi-button cbi-button-action cbi-button-inline',
-						click: ui.createHandlerFn(this, async () => {
-							await fs.exec('/morse/scripts/dpp_start.sh');
-							// We currently have no good feedback mechanism, so just wait 100 secs.
-							await new Promise(resolveFn => window.setTimeout(resolveFn, 100 * 1000));
-						}),
+						click: ui.createHandlerFn(this, () => startDPP('ap')),
 					}, _('Start DPP push button')),
 					_(' here, and then on the Client.'),
 				]),
@@ -821,7 +859,7 @@ function createAssoclistCard(wifiNetwork, hostHints, hasQRCode) {
 		table = E('em', _('No active devices'));
 	}
 
-	return new Card(`wifi-${wifiName}`, {
+	return new Card(`wifi-assoclist-${wifiNetwork.getDevice().getName()}`, {
 		heading: WIFI_MODES[mode] + ` (${wifiName})`,
 		link: { href: L.url('admin', 'network', 'wireless'), title: _('Wireless Configuration') },
 		highlights: [wifiNetwork.getDevice(), netIface],
@@ -835,7 +873,7 @@ function createAssoclistCard(wifiNetwork, hostHints, hasQRCode) {
 				bitrate && E('dd', `${wifiNetwork.getBitRate()} Mbps`),
 			].filter(e => e)),
 			E('div', { class: 'main-counter' }, [
-				E('button', { class: 'big-number click-to-expand' }, wifiNetwork.assoclist.length),
+				E('button', { class: 'big-number click-to-expand' }, associatedDevices.length),
 				E('button', { class: 'big-text click-to-expand' }, _('Connected Devices')),
 			]),
 		],
@@ -1069,7 +1107,7 @@ return view.extend({
 
 	async onceLoad() {
 		const [hasQRCode, ..._] = await Promise.all([
-			fetch(DPP_QRCODE_PATH, { method: 'HEAD' }).then(r => r.ok),
+			fetch(DPP_QRCODE_PATH, { method: 'HEAD' }).then(r => r.ok).catch(_e => false),
 			configDiagram.loadTemplate(),
 		]);
 
@@ -1077,7 +1115,7 @@ return view.extend({
 	},
 
 	async repeatLoad() {
-		const [boardinfo, ethernetPorts, morseMode, dhcpLeases] = await Promise.all([
+		const [boardinfo, builtinEthernetPorts, morseMode, dhcpLeases] = await Promise.all([
 			callSystemBoard(),
 			callGetBuiltinEthernetPorts(),
 			callMorseModeQuery(),
@@ -1120,7 +1158,7 @@ return view.extend({
 			network.flushCache(true),
 		]);
 
-		return { boardinfo, ethernetPorts, morseMode, dhcpLeases };
+		return { boardinfo, builtinEthernetPorts, morseMode, dhcpLeases };
 	},
 
 	async render([onceLoadData, repeatLoadData]) {
@@ -1182,7 +1220,7 @@ return view.extend({
 		return E('div');
 	},
 
-	async createCards({ hasQRCode, boardinfo, ethernetPorts, morseMode, dhcpLeases }) {
+	async createCards({ hasQRCode, boardinfo, builtinEthernetPorts, morseMode, dhcpLeases }) {
 		// Turn list into obj with getName() as keys.
 		function makeObj(l) {
 			return l.reduce((o, d) => (o[d.getName()] = d, o), {});
@@ -1191,6 +1229,7 @@ return view.extend({
 		// NB All of these awaits are not going to cause actual network requests,
 		// because (confusingly) network.flushCache(true) not only flushes the cache
 		// but makes all these requests again.
+		const networkDevices = await network.getDevices();
 		const hostHints = await network.getHostHints();
 		const networks = await network.getNetworks();
 		const wifiDevices = makeObj(await network.getWifiDevices());
@@ -1213,7 +1252,7 @@ return view.extend({
 			if (!wifiNetwork.isDisabled() && wifiNetwork.isUp() && wifiNetwork.getNetwork()) {
 				const mode = wifiNetwork.getMode();
 				if (['ap', 'mesh', 'adhoc'].includes(mode)) {
-					const card = createAssoclistCard(wifiNetwork, hostHints, hasQRCode);
+					const card = createAssoclistCard(wifiNetwork, hostHints);
 					if (isHaLow(wifiNetwork)) {
 						cards.push(card);
 					} else {
@@ -1257,7 +1296,7 @@ return view.extend({
 		// List non-HaLow APs later
 		cards.push(...nonHaLowCards);
 
-		cards.push(createModeCard(morseMode, ethernetPorts));
+		cards.push(createModeCard(morseMode, morseuci.getEthernetPorts(builtinEthernetPorts, networkDevices)));
 		cards.push(createNetworkInterfacesCard(networks, wifiDevices));
 		cards.push(createSystemCard(boardinfo));
 

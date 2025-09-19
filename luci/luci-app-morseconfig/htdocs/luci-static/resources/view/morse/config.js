@@ -77,14 +77,14 @@ const HALOW_WIFI_MODE_NAMES = {
 // These are extracted from LuCI's view/network/wireless.js.
 const ENCRYPTION_OPTIONS = {
 	'psk2': 'WPA2-PSK',
-	'psk-mixed': 'WPA-PSK/WPA2-PSK Mixed Mode',
+	'psk-mixed': 'WPA-PSK/WPA2-PSK',
 	'psk': 'WPA-PSK',
 	'sae': 'WPA3-SAE',
-	'sae-mixed': 'WPA2-PSK/WPA3-SAE Mixed Mode',
+	'sae-mixed': 'WPA2-PSK/WPA3-SAE',
 	'wep-open': _('WEP Open System'),
 	'wep-shared': _('WEP Shared Key'),
 	'wpa3': 'WPA3-EAP',
-	'wpa3-mixed': 'WPA2-EAP/WPA3-EAP Mixed Mode',
+	'wpa3-mixed': 'WPA2-EAP/WPA3-EAP',
 	'wpa2': 'WPA2-EAP',
 	'wpa': 'WPA-EAP',
 	'owe': 'OWE',
@@ -102,7 +102,7 @@ const ENCRYPTION_MODES_USING_KEYS = new Set([
 
 const ENCRYPTION_OPTIONS_FOR_MODE = {
 	mac80211: {
-		default: ['psk2', 'psk', 'sae', 'wpa3', 'none'],
+		default: ['psk2', 'sae-mixed', 'sae', 'owe', 'wpa3', 'none'],
 		mesh: ['sae', 'none'],
 		adhoc: ['psk2', 'none'],
 		monitor: ['none'],
@@ -125,9 +125,7 @@ ${_('When configured as a DHCP Server, the address is sent to DHCP clients.')}<b
 ${_('If this interface is not the connection to external subnets, you don\'t need to set a gateway. Leave it blank.')}<br>
 `;
 
-const BRIDGED_HALOW_WIFI_STA_ERROR = _('Network "%s" has a Wi-Fi client without WDS bridged with other devices. Either remove the other devices, enable WDS, or remove it from the network.');
-const BRIDGED_WIFI_STA_ERROR = _('Network "%s" has a Wi-Fi client on the same network as other devices. Either remove the other devices or remove it from the network.');
-const BRIDGED_WIFI_ADHOC_ERROR = _('Network "%s" has an Ad-Hoc Wi-Fi interface on the same network as other devices. Either remove the other devices or remove it from the network.');
+const NETWORK_WITHOUT_DEVICES_INFO = _('This network interface is unused because it has no Wireless interfaces or Ethernet ports. You can add Ethernet ports using the Ethernet column, or add Wireless interfaces by configuring them in the section below.');
 
 // This is based on widgets.NetworkSelect, but uses the zone style colouring
 // rather than the attached devices icons.
@@ -276,8 +274,13 @@ const WifiSecurityValue = form.Value.extend({
 
 		if (ENCRYPTION_MODES_USING_KEYS.has(encryption)) {
 			return form.Value.prototype.renderWidget.call(this, sectionId, optionIndex, cfgvalue);
-		} else if (!encryption || encryption === 'none') {
-			return E('input', { placeholder: 'Not required', disabled: 'true' });
+		} else if (!encryption || ['none', 'owe'].includes(encryption)) {
+			const widget = new ui.Textfield('', {
+				id: this.cbid(sectionId),
+				placeholder: 'Not required',
+				disabled: true,
+			});
+			return widget.render();
 		} else {
 			return E('a', {
 				href: L.url('admin', 'network', 'wireless'),
@@ -307,6 +310,10 @@ function isNormalNetworkIface(netIface) {
 
 function getWifiIfaceModeI18n(wifiIface) {
 	return WIFI_MODE_NAMES[wifiIface.mode] ?? _('Unknown');
+}
+
+function modeUsesDefaultWifiKey(mode) {
+	return ['ap', 'ap-wds', 'mesh'].includes(mode);
 }
 
 return view.extend({
@@ -364,23 +371,8 @@ return view.extend({
 	preSaveHook() {
 		// Use a bridge if we have more than one device.
 		for (const network of uci.sections('network', 'interface')) {
-			const hasBridge = morseuci.useBridgeIfNeeded(network['.name']);
-
-			if (hasBridge) {
-				for (const wifiIface of morseuci.getNetworkWifiIfaces(network['.name'])) {
-					if (wifiIface.mode === 'adhoc') {
-						throw new TypeError(BRIDGED_WIFI_ADHOC_ERROR.format(network['.name']));
-					}
-
-					if (wifiIface.mode === 'sta' && wifiIface.wds !== '1') {
-						if (this.wifiDevices[wifiIface.device]?.get('type') === 'morse') {
-							throw new TypeError(BRIDGED_HALOW_WIFI_STA_ERROR.format(network['.name']));
-						} else {
-							throw new TypeError(BRIDGED_WIFI_STA_ERROR.format(network['.name']));
-						}
-					}
-				}
-			}
+			morseuci.createOrRemoveBridgeAsNeeded(network['.name']);
+			morseuci.validateBridge(network['.name'], this.wifiDevices);
 		}
 
 		// Make sure we don't have too many ifaces for morse devices.
@@ -413,7 +405,7 @@ return view.extend({
 
 	load() {
 		return Promise.all([
-			fetch(DPP_QRCODE_PATH, { method: 'HEAD' }).then(r => r.ok),
+			fetch(DPP_QRCODE_PATH, { method: 'HEAD' }).then(r => r.ok).catch(_e => false),
 			callGetBuiltinEthernetPorts(),
 			configDiagram.loadTemplate(),
 			uci.load(['network', 'firewall', 'dhcp', 'system']),
@@ -617,15 +609,17 @@ return view.extend({
 				ssidOption.renderUpdate(sectionId, morseuci.getDefaultSSID());
 			}
 
-			const encryptionOption = this.map.lookupOption('encryption', sectionId)[0];
-			encryptionOption.renderUpdate(sectionId, isMorse ? 'sae' : 'psk2');
-
-			// Note that encryptionOption may have already called renderUpdate above,
-			// but it will not have reset the key appropriately if the encryption didn't change.
-			const newKey = ['sta', 'sta-wds'].includes(value) ? '' : morseuci.getDefaultWifiKey();
+			const newKey = modeUsesDefaultWifiKey(value) ? morseuci.getDefaultWifiKey() : '';
 			const keyOption = this.map.lookupOption('_wpa_key', sectionId)[0];
 			keyOption.renderUpdate(sectionId, newKey);
+
+			// Note: The encryptionOption should be updated AFTER the keyOption, otherwise the
+			// encryptionOption will undo the keyOption change above if the changing mode also
+			// changes the encryption setting
+			const encryptionOption = this.map.lookupOption('encryption', sectionId)[0];
+			encryptionOption.renderUpdate(sectionId, isMorse ? 'sae' : 'psk2');
 		};
+
 		if (!isMorse) {
 			// Since we don't support WDS here, and in advanced config changing
 			// the mode would let you select the WDS status (similar to our HaLow
@@ -694,6 +688,14 @@ return view.extend({
 			option.depends({ '!reverse': true, 'mode': 'sta' });
 		}
 		option.readonly = readOnly;
+		if (readOnly) {
+			// If we're in readonly mode, we don't want to block people saving seemingly
+			// 'bad' configurations when they can't fix them.
+			// This happens in practice if you have an EasyMesh config before WPS,
+			// where we don't know the SSID/password yet (and so have left it blank).
+			option.validate = () => true;
+			option.optional = true;
+		}
 		option.rmempty = false;
 		option.write = function (sectionId, value) {
 			const mode = this.map.lookupOption('mode', sectionId)[0].formvalue(sectionId);
@@ -741,17 +743,35 @@ return view.extend({
 		}
 		option.deviceType = deviceType;
 		option.default = 'none';
-		option.onchange = function (ev, sectionId, _value) {
+		option.onchange = function (ev, sectionId, _value, previousValue) {
 			const mode = this.section.formvalue(sectionId, 'mode');
 			let key = this.section.formvalue(sectionId, '_wpa_key');
 
 			// On change, if empty key 'suggest' default key.
-			if (!['sta', 'sta-wds'].includes(mode) && !key) {
+			if (!key && modeUsesDefaultWifiKey(mode)) {
 				key = morseuci.getDefaultWifiKey();
 			}
 
 			const keyOption = this.map.lookupOption('_wpa_key', sectionId)[0];
 			keyOption.renderUpdate(sectionId, key);
+
+			if (['wpa3', 'wpa3-mixed'].includes(previousValue)) {
+				// If the user has (as suggested on the page) gone to setup wpa3 things like
+				// auth_server in the advanced config, then switches back to something
+				// else (e.g. like ordinary sae), apparently auth_server is still
+				// meaningful, picked up by netifd and passed to wpa_supplicant. To avoid user
+				// confusion since we don't hint at being able to configure the auth_server here,
+				// remove auth_server (this also prevents other related things like
+				// port/secret/macaddr_acl being set).
+				//
+				// We do not remove auth_server as a general thing (i.e. on .write, as would
+				// be a more usual approach), because the user may have configured this intentionally,
+				// and we want to follow our policy of not destroying existing configuration.
+				// It's safe to modify uci directly rather than pushing this through a hidden
+				// form value since this page habitually pushes changes to uci in order
+				// to render the diagram.
+				uci.unset('wireless', sectionId, 'auth_server');
+			}
 		};
 
 		option = section.option(WifiSecurityValue, '_wpa_key', _('Key/Security'));
@@ -763,6 +783,14 @@ return view.extend({
 		option.rmempty = true;
 		option.password = true;
 		option.readonly = readOnly;
+		if (readOnly) {
+			// If we're in readonly mode, we don't want to block people saving seemingly
+			// 'bad' configurations when they can't fix them.
+			// This happens in practice if you have an EasyMesh config before WPS,
+			// where we don't know the SSID/password yet (and so have left it blank).
+			option.validate = () => true;
+			option.optional = true;
+		}
 
 		// This curious code is taken from LuCI's wireless.js. Apparently,
 		// in WEP mode key can be an reference specifying key1/key2/key3/key4.
@@ -793,10 +821,21 @@ return view.extend({
 
 		let option;
 
-		option = section.option(form.DummyValue, '_name', _('Name'));
+		option = section.option(morseui.DynamicDummyValue, '_name', _('Name'));
 		option.rawhtml = true;
 		option.cfgvalue = (sectionId) => {
-			return E('span', { class: 'zonebadge network-name', style: firewall.getZoneColorStyle(morseuci.getZoneForNetwork(sectionId)) }, sectionId);
+			if (morseuci.getNetworkDevices(sectionId).length + morseuci.getNetworkWifiIfaces(sectionId).length > 0) {
+				return E('span', {
+					class: 'zonebadge network-name',
+					style: firewall.getZoneColorStyle(morseuci.getZoneForNetwork(sectionId)),
+				}, sectionId);
+			} else {
+				return E('span', {
+					'class': 'zonebadge network-name show-warning',
+					'data-tooltip': NETWORK_WITHOUT_DEVICES_INFO,
+					'style': firewall.getZoneColorStyle(morseuci.getZoneForNetwork(sectionId)),
+				}, sectionId);
+			}
 		};
 
 		option = section.option(SimpleForwardSelect, '_forward', _('Forward'));
@@ -1156,6 +1195,26 @@ return view.extend({
 
 				this.cfgvalue(sectionId, this.load(sectionId));
 
+				// Now it gets even trickier. Sometimes, it's not valid to set an option
+				// because it's already been 'used' in another section (e.g. assigning the
+				// same ethernet port to two networks, or the same IP to two networks).
+				// This prevents _either_ of those values from parsing.
+				// However, when one of them is updated, both should now be pushed through
+				// to uci before we can update dynamic dummy values or the diagram.
+				for (const otherSectionId of this.section.cfgsections()) {
+					if (otherSectionId !== sectionId) {
+						try {
+							await this.parse(otherSectionId);
+						} catch (e) {
+							// Ignore errors from fields we aren't changing and
+							// in this case continue to update diagram/dummyvalues.
+						}
+					}
+				}
+
+				// Now we get to what all this is for: the ability to re-render things when
+				// something has changed. In this case, special form elements
+				// (DynamicDummyValues) and the diagram at the top.
 				for (const dv of dynamicValues) {
 					for (const dvSectionId of dv.section.cfgsections()) {
 						dv.renderUpdate(dvSectionId);

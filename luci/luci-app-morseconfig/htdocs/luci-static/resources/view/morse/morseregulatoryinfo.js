@@ -19,7 +19,6 @@ const COLUMN_NAMES = {
 	pkt_spacing_ms: _('Pause length after transmit'),
 	airtime_min_ms: _('Pause after transmit'),
 	airtime_max_ms: _('Maximum transmit time'),
-	usable_banff_c: _('MM6108 compatibility'),
 };
 
 // Which columns to display in our table, in order.
@@ -76,9 +75,6 @@ return view.extend({
 				channel_map[channel.country_code] = [];
 			}
 
-			if (channel.usable_banff_c == 0) {
-				channel.s1g_chan = channel.s1g_chan + '*';
-			}
 			channel_map[channel.country_code].push(COLUMN_DISPLAY.map(col => channel[col]));
 			country_map[channel.country_code] = channel.country;
 		}
@@ -100,11 +96,8 @@ return view.extend({
 			)),
 		]);
 
-		const msg_unsupported_channels = E('p', { class: 'hidden' }, _('* Channel not supported on the MM6108'));
-
 		country_selector.addEventListener('change', (ev) => {
 			channel_info.classList.remove('hidden');
-			msg_unsupported_channels.classList.remove('hidden');
 			cbi_update_table(channel_info, channel_map[ev.currentTarget.value]);
 		});
 
@@ -115,7 +108,6 @@ return view.extend({
 				country_selector,
 			]),
 			channel_info,
-			msg_unsupported_channels,
 		];
 	},
 });

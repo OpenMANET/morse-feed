@@ -7,32 +7,34 @@
 
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=morse-led-artini
+PKG_NAME:=morse-leds
 PKG_RELEASE:=1
 
 include $(INCLUDE_DIR)/package.mk
 
-define Package/morse-led-artini
+define Package/morse-leds
   SECTION:=utils
   CATEGORY:=Base system
-  TITLE:=Morse Micro HaLowLink1 LED Functionality
+  TITLE:=Morse Micro LED Functionality
   MAINTAINER:=Morse Micro
 endef
 
-define Package/morse-led-artini/description
-  Override default LED status handler for Artini (HaLowLink1)
-  to handle the PWM LEDs (both for the status, and to set
+define Package/morse-leds/description
+  Override default LED status handler to handle new
+  states and more complex LEDs (e.g. PWM)
+  (both for the status, and to set
   the colour of the other LEDs since the OpenWrt LED
-  configurator doesn't know how to set the colour).
+  configurator doesn't know how to set the colour on
+  PWM LEDs).
 endef
 
 define Build/Compile
 
 endef
 
-define Package/morse-led-artini/install
+define Package/morse-leds/install
 	$(INSTALL_DIR) $(1)/etc
 	$(INSTALL_BIN) ./files/etc/diag_override.sh $(1)/etc/
 endef
 
-$(eval $(call BuildPackage,morse-led-artini))
+$(eval $(call BuildPackage,morse-leds))

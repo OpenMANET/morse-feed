@@ -1,4 +1,4 @@
-section.message {
+details, section.message {
     ul {
         padding: revert;
         li {

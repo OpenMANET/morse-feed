@@ -240,9 +240,9 @@ class CLIWPSButtonElement extends AbstractWPSButtonElement {
 
 	get command() {
 		if (this.isSupplicant()) {
-			return '/sbin/wpa_cli_s1g';
+			return '/usr/sbin/wpa_cli_s1g';
 		} else {
-			return '/sbin/hostapd_cli_s1g';
+			return '/usr/sbin/hostapd_cli_s1g';
 		}
 	}
 

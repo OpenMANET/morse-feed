@@ -1,14 +1,14 @@
 #/bin/sh
 min_screen_cols=170
 min_screen_raws=52
-getMorseInterface(){
-    for file in "/sys/class/net/wlan"*;
-    do
-        if [ -d "$file"/device/morse ]
-        then
-            MORSE_IFACE=$(basename $file)
-        fi
-    done
+
+getMorseInterface()
+{
+    local net_path=$(find /sys/class/morse/morse_io/device/ -name net | head -n 1)
+    if [ -n "$net_path" ]; then
+        local morse_iface=$(basename "$net_path/"*)
+        MORSE_IFACE=$morse_iface
+    fi
 }
 
 printUsage(){

@@ -18,10 +18,12 @@ PKG_NAME:=morse-regdb
 PKG_RELEASE:=1
 PKG_BUILD_DEPENDS:=python3/host
 
-PKG_SOURCE_VERSION:=v2.1.1
-PKG_SOURCE_URL:=https://github.com/MorseMicro/morse_regdb.git
+PKG_SOURCE_VERSION:=v2.2.1
+# This points to an internal repo, but the repo is not used unless REGENERATE is set
+# (see initial comment).
+PKG_SOURCE_URL:=ssh://git@bitbucket.org/morsemicro/morse_regdb.git
 PKG_SOURCE_PROTO:=git
-PKG_MIRROR_HASH:=0d074d2810f520c138427ab63ce0b8ab61f0f073cf7cd91177ad840a3322540a
+PKG_MIRROR_HASH:=39f04ac799341e7a07d256c89ad8d30e22848f28af211a2a313bf9a16e5a6311
 
 PKG_VERSION:=$(PKG_SOURCE_VERSION)
 
@@ -59,7 +61,7 @@ define Package/morse-regdb/config
 		depends on PACKAGE_morse-regdb
 		help
 			Filter out channels from regulatory database.
-			Enter a list channels separated by |.
+			Enter a list of channels separated by |.
 			Leave blank to include all channels.
 			This only filters the channels.csv file, which affects the choices
 			available in the UI but does not otherwise limit the capabilities
@@ -88,13 +90,12 @@ define Build/Compile
 	$(if $(REGENERATE),
 		mkdir -p artefacts
 		python3 $(PKG_BUILD_DIR)/regdbconverter.py -v -f csv $(PKG_BUILD_DIR)/regdb_Sub-1_GHz.tsv > artefacts/repo_channels.csv
+		find patch/ -type f -name '*.patch' -print0 | sort -z | xargs -r -t -0 -n 1 patch -p1 -i
 	)
+
 	mkdir -p $(PKG_BUILD_DIR)/artefacts
-	# Mash the 5g shim channels in, filter out banned countries and channels,
-	# then add primary channels based on what remains.
-	set -o pipefail; python3 add_5g_shim_channels.py < artefacts/repo_channels.csv \
-	| $(FILTER) \
-	| python3 add_primary_channels.py > $(PKG_BUILD_DIR)/artefacts/channels.csv
+	# Mash the 5g shim channels in.
+	python3 add_5g_shim_channels.py < artefacts/repo_channels.csv | $(FILTER) > $(PKG_BUILD_DIR)/artefacts/channels.csv
 endef
 
 define Package/morse-regdb/install

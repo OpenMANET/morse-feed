@@ -1,8 +1,28 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8"
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:367
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:428
 msgid "802.11s Mesh"
+msgstr ""
+
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:330
+msgid ""
+"<p>Easy Mesh Controller configuration allows centralized management of WiFi "
+"network credentials. The HaLow Gateway's network credentials will be "
+"automatically applied to all extenders. <p>Note: The extender's QR code for "
+"Wi-Fi connection will no longer be valid."
+msgstr ""
+
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:57
+msgid ""
+"<p>This device is currently setup as an Access Point mode or equivalent "
+"(shown by a solid green Status LED). If you would like to connect to an "
+"existing HaLow network, you should reset the device to Extender mode (shown "
+"by a solid aqua Status LED): <ul> <li>hold the mode button until the Status "
+"LED starts <strong>quickly flashing aqua</strong>, then release the button "
+"<li>wait until the LED is <strong>solid aqua</strong> <li>a short button "
+"press first on the Access Point then on the Extender will initiate pairing; "
+"see the user guide for details </ul>"
 msgstr ""
 
 #: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:35
@@ -21,7 +41,7 @@ msgid ""
 "see the user guide for details </ul>"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:55
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:69
 msgid ""
 "<p>This device is in a state where this wizard cannot work (%s). To "
 "configure via this page, you should factory reset: <ul> <li>hold the mode "
@@ -30,22 +50,22 @@ msgid ""
 "strong> <li>find this device at 192.168.12.1 </ul>"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:366
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:427
 msgid "Access Point"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:285
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:335
 msgid ""
 "After saving a 2.4 GHz Wi-Fi uplink configuration, you will need to connect "
 "to the correct network on on the Home page. Find the Uplink card, click on "
 "the \"Disconnected\" cross, then set the SSID and password."
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:368
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:429
 msgid "EasyMesh Controller"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:366
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:427
 msgid "Fastest mode if <4km range."
 msgstr ""
 
@@ -53,40 +73,40 @@ msgstr ""
 msgid "Grant enough access for morseapwizard to rewrite config"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:357
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:418
 msgid "HaLow Mode"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:378
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:439
 msgid ""
 "HaLow Wi-Fi devices will get an IP on this device's local network and use "
 "2.4 GHz Wi-Fi for an uplink (not an Ethernet cable)."
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:376
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:437
 msgid "HaLow Wi-Fi devices will get an IP on this device's local network."
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:375
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:436
 msgid "HaLow Wi-Fi devices will get an IP on your existing router's network."
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:372
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:386
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:433
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:447
 msgid "Network Mode"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:316
-msgid "No 2.4 GHz Wi-Fi radio found"
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:377
+msgid "No non-HaLow Wi-Fi radios found"
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:367
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:368
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:428
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:429
 msgid "Use extra devices for more range."
 msgstr ""
 
-#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:335
 #: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:396
+#: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:457
 #: luci/luci-app-morseapwizard/root/usr/share/luci/menu.d/luci-app-morseapwizard.json:3
 msgid "Wizard"
 msgstr ""

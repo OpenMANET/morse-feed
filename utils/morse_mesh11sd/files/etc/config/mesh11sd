@@ -11,6 +11,7 @@ config mesh11sd 'mesh_params'
         option mesh_ttl '31'
         option mesh_hwmp_rootmode '0'
         option mesh_gate_announcements '0'
+        option mesh_nolearn '0'
 
 config mesh11sd 'mbca'
         option mbca_config '1'
@@ -24,5 +25,3 @@ config mesh11sd 'mesh_beaconless'
 
 config mesh11sd 'mesh_dynamic_peering'
         option enabled '0'
-        option mesh_rssi_margin '5'
-        option mesh_blacklist_timeout '60'

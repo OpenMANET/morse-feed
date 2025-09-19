@@ -52,6 +52,20 @@ resetting the device to Access Point mode (shown by a solid green Status LED):
 </ul>
 `).trim();
 
+// Conversely, if you're in AP mode in the wizard, you might expect to be able to do everything.
+// Let people know that they can switch to Extender mode.
+const AP_MODE_MESSAGE = _(`
+<p>This device is currently setup as an Access Point mode or equivalent (shown by a solid green Status LED).
+If you would like to connect to an existing HaLow network, you should
+reset the device to Extender mode (shown by a solid aqua Status LED):
+<ul>
+	<li>hold the mode button until the Status LED starts <strong>quickly flashing aqua</strong>,
+		then release the button
+	<li>wait until the LED is <strong>solid aqua</strong>
+	<li>a short button press first on the Access Point then on the Extender will initiate pairing; see the user guide for details
+</ul>
+`).trim();
+
 const INVALID_CONFIG_MESSAGE = _(`
 <p>This device is in a state where this wizard cannot work (%s).
 
@@ -105,28 +119,32 @@ return view.extend({
 
 		// (2) Take that JSON data and turn it into uci config.
 		const {
+			wifiDevices,
 			morseDeviceName,
-			wifiDeviceName,
 			morseInterfaceName,
-			wifiApInterfaceName,
-			wifiStaInterfaceName,
 			morseMeshInterfaceName,
 		} = wizard.readSectionInfo();
 
-		const wifiApDisabled = uci.get('wireless', wifiApInterfaceName, 'disabled');
+		const wifiApsDisabled = {};
+		for (const wifiDevice of wifiDevices) {
+			wifiApsDisabled[wifiDevice.name] = uci.get('wireless', wifiDevice.apInterfaceName, 'disabled');
+		}
 
 		wizard.resetUci();
 		wizard.resetUciNetworkTopology();
 
-		// Remove primary channel width override (may have been set by mesh code).
+		// Remove primary channel width override (may have been set by bug work-around from
+		// prior mesh wizard versions).
 		uci.unset('wireless', morseDeviceName, 's1g_prim_chwidth');
 
 		// Make sure Morse device is enabled.
 		uci.unset('wireless', morseDeviceName, 'disabled');
 
-		// Re-enable 2.4 if our reset disabled.
-		if (uci.get('wireless', wifiApInterfaceName)) {
-			uci.set('wireless', wifiApInterfaceName, 'disabled', wifiApDisabled);
+		// Re-enable any non-HaLow radios if our reset disabled.
+		for (const wifiDevice of wifiDevices) {
+			if (uci.get('wireless', wifiDevice.apInterfaceName)) {
+				uci.set('wireless', wifiDevice.apInterfaceName, 'disabled', wifiApsDisabled[wifiDevice.name]);
+			}
 		}
 
 		// Ensure HaLow AP is enabled/created
@@ -149,6 +167,10 @@ return view.extend({
 			case 'standard':
 				morseuci.forceBridge('lan', 'br-lan');
 				uci.set('system', 'led_halow', 'dev', 'wlan0');
+				uci.set('wireless', morseInterfaceName, 'encryption', 'sae');
+				for (const wifiDevice of wifiDevices) {
+					uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'psk2');
+				}
 				break;
 			case 'prplmesh':
 				morseuci.forceBridge('lan', 'br-prpl', this.bridgeMAC);
@@ -164,7 +186,7 @@ return view.extend({
 				}
 				uci.set('prplmesh', morseDeviceName, 'hostap_iface', 'wlan-prpl');
 
-				uci.set('wireless', morseInterfaceName, 'encryption', 'sae');
+				uci.set('wireless', morseInterfaceName, 'encryption', 'sae-mixed');
 				uci.set('wireless', morseInterfaceName, 'bss_transition', '1');
 				uci.set('wireless', morseInterfaceName, 'multi_ap', '3');
 				uci.set('wireless', morseInterfaceName, 'ieee80211k', '1');
@@ -174,12 +196,26 @@ return view.extend({
 				uci.set('wireless', morseInterfaceName, 'wps_virtual_push_button', '1');
 				uci.set('wireless', morseInterfaceName, 'wps_independent', '0');
 				uci.set('wireless', morseInterfaceName, 'auth_cache', '0');
+
+				// Configure the non-HaLow radios to be managed by prplMesh
+				wifiDevices.forEach((wifiDevice, i) => {
+					if (!uci.get('prplmesh', wifiDevice.name)) {
+						uci.add('prplmesh', 'wifi-device', wifiDevice.name);
+					}
+					uci.set('system', 'led_80211n_ap', 'dev', `wl${i}-prpl`);
+					uci.set('prplmesh', wifiDevice.name, 'hostap_iface', `wl${i}-prpl`);
+					uci.set('wireless', wifiDevice.apInterfaceName, 'ifname', `wl${i}-prpl`);
+					uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'sae-mixed');
+					uci.set('wireless', wifiDevice.apInterfaceName, 'bss_transition', '1');
+					uci.set('wireless', wifiDevice.apInterfaceName, 'multi_ap', '2');
+					uci.set('wireless', wifiDevice.apInterfaceName, 'wps_virtual_push_button', '1');
+					uci.set('wireless', wifiDevice.apInterfaceName, 'wps_independent', '0');
+					uci.set('wireless', wifiDevice.apInterfaceName, 'auth_cache', '0');
+				});
+
 				break;
 			case 'mesh':
 				morseuci.forceBridge('lan', 'br-lan');
-
-				// Avoid SW-12287 (issue with associating to co-located AP)
-				uci.set('wireless', morseDeviceName, 's1g_prim_chwidth', '1');
 
 				uci.set('mesh11sd', 'mesh_params', 'mesh_gate_announcements', '1');
 
@@ -198,6 +234,10 @@ return view.extend({
 				}
 				if (!uci.get('wireless', morseMeshInterfaceName, 'key')) {
 					uci.set('wireless', morseMeshInterfaceName, 'key', uci.get('wireless', morseInterfaceName, 'key'));
+				}
+
+				for (const wifiDevice of wifiDevices) {
+					uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'psk2');
 				}
 				uci.set('system', 'led_halow', 'dev', 'wlan0');
 				break;
@@ -228,7 +268,7 @@ return view.extend({
 						uci.set('wireless', iface['.name'], 'network', 'wlan');
 					}
 				}
-				morseuci.useBridgeIfNeeded('wlan');
+				morseuci.createOrRemoveBridgeAsNeeded('wlan');
 				break;
 			case 'routed_wan': // everything on lan except wan port
 			default:
@@ -259,18 +299,20 @@ return view.extend({
 				}
 
 				// Set WAN devices
-				if (uci.get('wireless', wifiStaInterfaceName)) {
-					uci.unset('wireless', wifiStaInterfaceName, 'disabled');
-				} else {
-					uci.add('wireless', 'wifi-iface', wifiStaInterfaceName);
-				}
-				uci.set('wireless', wifiStaInterfaceName, 'device', wifiDeviceName);
-				uci.set('wireless', wifiStaInterfaceName, 'mode', 'sta');
-				uci.set('wireless', wifiStaInterfaceName, 'network', 'wan');
-				if (!uci.get('wireless', wifiStaInterfaceName, 'ssid')) {
-					// Without setting something here, if no SSID is specified
-					// wpa_supplicant likes to connect to any open network.
-					uci.set('wireless', wifiStaInterfaceName, 'encryption', 'psk2');
+				for (const wifiDevice of wifiDevices) {
+					if (uci.get('wireless', wifiDevice.staInterfaceName)) {
+						uci.unset('wireless', wifiDevice.staInterfaceName, 'disabled');
+					} else {
+						uci.add('wireless', 'wifi-iface', wifiDevice.staInterfaceName);
+					}
+					uci.set('wireless', wifiDevice.staInterfaceName, 'device', wifiDevice.name);
+					uci.set('wireless', wifiDevice.staInterfaceName, 'mode', 'sta');
+					uci.set('wireless', wifiDevice.staInterfaceName, 'network', 'wan');
+					if (!uci.get('wireless', wifiDevice.staInterfaceName, 'ssid')) {
+						// Without setting something here, if no SSID is specified
+						// wpa_supplicant likes to connect to any open network.
+						uci.set('wireless', wifiDevice.staInterfaceName, 'encryption', 'psk2');
+					}
 				}
 				break;
 		}
@@ -283,8 +325,12 @@ return view.extend({
 	},
 
 	updateInfoBox() {
-		// At the moment, this is the only infobox thing we show.
-		const WIFI24_UPLINK_INFO = _(`
+		const EASYMESH_INFO = _(`
+			<p>Easy Mesh Controller configuration allows centralized management of WiFi network credentials.
+			The HaLow Gateway's network credentials will be automatically applied to all extenders.
+			<p>Note: The extender's QR code for Wi-Fi connection will no longer be valid.
+		`);
+		const WIFI_UPLINK_INFO = _(`
 			After saving a 2.4 GHz Wi-Fi uplink configuration, you will need to connect to the correct
 			network on on the Home page. Find the Uplink card, click on the "Disconnected" cross, then
 			set the SSID and password.
@@ -294,9 +340,20 @@ return view.extend({
 			(this.data.wizard.device_mode !== 'prplmesh' && this.data.wizard.network_mode === 'routed_wifi24')
 			|| (this.data.wizard.device_mode === 'prplmesh' && this.data.wizard.network_mode_prplmesh === 'routed_wifi24')
 		);
+		const shouldShowEasyMeshInfo = (this.data.wizard.device_mode === 'prplmesh');
 
-		this.infobox.innerHTML = WIFI24_UPLINK_INFO;
-		this.infobox.style.display = shouldShowWifi24UplinkInfo() ? 'block' : 'none';
+		let message = '';
+		if (shouldShowWifi24UplinkInfo) {
+			message += WIFI_UPLINK_INFO;
+		}
+		if (shouldShowEasyMeshInfo) {
+			if (message) message += '<br><br>'; // Add spacing between messages
+			message += EASYMESH_INFO;
+		}
+
+		// Update the infobox
+		this.infobox.innerHTML = message;
+		this.infobox.style.display = message ? 'block' : 'none';
 	},
 
 	async load() {
@@ -312,10 +369,10 @@ return view.extend({
 			this.errorMessage = EXTENDER_MODE_MESSAGE;
 		} else {
 			try {
-				const { wifiDevice } = wizard.readSectionInfo();
+				const { wifiDevices } = wizard.readSectionInfo();
 
-				if (!wifiDevice) {
-					this.errorMessage = INVALID_CONFIG_MESSAGE.format(_('No 2.4 GHz Wi-Fi radio found'));
+				if (wifiDevices.length == 0) {
+					this.errorMessage = INVALID_CONFIG_MESSAGE.format(_('No non-HaLow Wi-Fi radios found'));
 				}
 			} catch (e) {
 				this.errorMessage = INVALID_CONFIG_MESSAGE.format(e.message);
@@ -399,6 +456,10 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, this.diagram),
 			this.map.render(),
 			this.infobox,
+			E('details', { class: 'cbi-section', style: 'padding: 20px; cursor: pointer;' }, [
+				E('summary', { style: 'font-weight: bold;' }, 'How do I configure this device as a HaLow Client/Station?'),
+				E('div', {}, AP_MODE_MESSAGE),
+			]),
 		]);
 	},
 

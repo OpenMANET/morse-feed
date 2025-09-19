@@ -34,9 +34,11 @@ define Package/netifd-morse/install
 	$(INSTALL_DIR) $(1)/lib/
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/ieee80211
+	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(CP) ./lib/* $(1)/lib/
 	$(CP) ./etc/uci-defaults/* $(1)/etc/uci-defaults/
 	$(CP) ./etc/hotplug.d/ieee80211/* $(1)/etc/hotplug.d/ieee80211/
+	$(INSTALL_DATA) ./usr/share/rpcd/ucode/* $(1)/usr/share/rpcd/ucode
 endef
 
 $(eval $(call BuildPackage,netifd-morse))

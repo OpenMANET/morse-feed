@@ -15,8 +15,20 @@
 #define CONFIG_CTRL_IFACE_DIR "/var/run/wpa_supplicant_s1g"
 #define wpa_el_version "V1.0.0"
 
+// After starting a PB interaction, Set a long timeout in case we don't see
+// a hostapd PB_RESULT event or similar (usually a DPP-PB interaction will
+// timeout after 100 seconds).
+#define FAIL_AFTER_SECS 105
+
+// Currently, hostapd has a 120s session overlap detection timeout
+// (AFAIK this is not according to spec - it should be 110s before push button).
+// To avoid overlapping with ourselves, we keep the failure state going
+// for 120s.
+#define FINISH_AFTER_SECS 120
+
 enum event_value_types {
     TYPE_CONF_RECEIVED,
+    TYPE_CONF_FAILED,
     TYPE_ENCRYPTION,
     TYPE_SSID,
     TYPE_PSK,
@@ -37,8 +49,9 @@ struct event {
 /* dpp connector, c-sign-key, pp-key and net access key will be received after
  * qrcode provisionning but they are ignored by now.
  */
-static struct event interresting_events[] = {
+static struct event interesting_events[] = {
     {"DPP-CONF-RECEIVED", TYPE_CONF_RECEIVED},
+    {"DPP-CONF-FAILED", TYPE_CONF_FAILED},
     {"DPP-CONFOBJ-AKM", TYPE_ENCRYPTION},
     {"DPP-CONFOBJ-SSID", TYPE_SSID},
     {"DPP-CONFOBJ-PASS", TYPE_PSK},
@@ -64,13 +77,13 @@ static struct {
 static struct wpa_ctrl *ctrl_conn;
 static struct uloop_fd listener;
 
-static void led_timeout_cb(struct uloop_timeout*);
-static struct uloop_timeout led_timeout = {
-    .cb = led_timeout_cb,
+static void finished_timeout_cb(struct uloop_timeout*);
+static struct uloop_timeout finished_timeout = {
+    .cb = finished_timeout_cb,
 };
-static void led_failed_cb(struct uloop_timeout *);
+static void failed_timeout_cb(struct uloop_timeout *);
 static struct uloop_timeout failed_timeout = {
-    .cb = led_failed_cb,
+    .cb = failed_timeout_cb,
 };
 
 static char *ctrl_ifname = NULL;
@@ -118,16 +131,14 @@ void apply_cached_confs() {
 
     pid_t pid = 0;
     // only fork if we don't want to exit after receiving configs.
-    if (exit_on_config_receive == 0) {
-        pid = fork();
-        if (pid == -1) {
-            printf("Unable to fork action script\n");
-            return;
-        }
-        // forked process will have pid=0.
-        if (pid > 0)
-            return;
+    pid = fork();
+    if (pid == -1) {
+        printf("Unable to fork action script\n");
+        return;
     }
+    // forked process will have pid=0.
+    if (pid > 0)
+        return;
 
     setenv("iface_name", ctrl_ifname, 1);
     setenv("encryption", cached_confs.encryption, 1);
@@ -141,65 +152,67 @@ void apply_cached_confs() {
     clear_env();
 }
 
-void call_action_script(const char *arg) {
+void call_action_script(const char *state, int lockout) {
+    char lockout_str[20];
+    sprintf(lockout_str, "%d", lockout);
+
     pid_t pid = fork();
     if (pid == -1) {
         printf("Unable to fork action script");
         return;
-    }
-    if (pid > 0) {
+    } else if (pid > 0) {
         int status;
         waitpid(pid, &status, 0);
-    } else if (execl(action_script, action_script, arg, (char *)NULL) == -1) {
+    } else if (execl(action_script, action_script, state, lockout_str, (char *)NULL) == -1) {
         perror("Could not execv");
         exit(1);
     }
 }
 
-static void led_timeout_cb(struct uloop_timeout *t) {
-    printf("led timeout\n");
-    call_action_script("finished");
-}
-
-static void led_finished() {
-    // Stop the blink.
-    printf("Stopping led blink\n");
-    uloop_timeout_cancel(&led_timeout);
-    call_action_script("finished");
-}
-
-static void led_failed_cb(struct uloop_timeout *t) {
-    // Start the fail blink with a short timeout.
-    printf("Starting led fail blink\n");
-    uloop_timeout_set(&led_timeout, 5000);
-    call_action_script("failed");
-}
-
-static void led_failed() {
-    // Issue the failed command after a small delay. This is because
-    // wpa_supplicant emits back to back failed and started events when a
-    // dpp_push_button occurs while another is still running, so save some time
-    // for led_started to cancel the failed_timeout.
-    uloop_timeout_set(&failed_timeout, 1000);
-}
-
-static void led_started() {
-    // Start the blink. Set a long timeout for the blink in case we don't see hostapd PB_RESULT event.
-    printf("Starting led blink\n");
+static void finished(int force_end) {
+    printf("DPP finished\n");
+    uloop_timeout_cancel(&finished_timeout);
     uloop_timeout_cancel(&failed_timeout);
-    uloop_timeout_set(&led_timeout, 120000);
-    call_action_script("started");
+    call_action_script("finished", 0);
+
+    if (force_end || exit_on_config_receive) {
+        uloop_end();
+    }
+}
+
+static void finished_timeout_cb(struct uloop_timeout *t) {
+    finished(0);
+}
+
+static void failed() {
+    printf("DPP failed; starting lockout\n");
+    uloop_timeout_cancel(&failed_timeout);
+    uloop_timeout_set(&finished_timeout, FINISH_AFTER_SECS * 1000);
+    call_action_script("failed", FINISH_AFTER_SECS);
+}
+
+static void failed_timeout_cb(struct uloop_timeout *t) {
+    failed();
+}
+
+static void started() {
+    printf("DPP started\n");
+    uloop_timeout_cancel(&finished_timeout);
+    uloop_timeout_set(&failed_timeout, FAIL_AFTER_SECS * 1000);
+    // Give the worst case lockout to the action script
+    // (NB this will ge updated if failed is called early).
+    call_action_script("started", FAIL_AFTER_SECS + FINISH_AFTER_SECS);
 }
 
 static void message_process(char *const message) {
-    const int good_events_count = sizeof(interresting_events) / sizeof(struct event);
+    const int good_events_count = sizeof(interesting_events) / sizeof(struct event);
 
     for (int i = 0; i < good_events_count; i++) {
-        char *ptr = strstr(message, interresting_events[i].event_title);
+        char *ptr = strstr(message, interesting_events[i].event_title);
         if (ptr) {
-            const char *const value = ptr + strlen(interresting_events[i].event_title) +
+            const char *const value = ptr + strlen(interesting_events[i].event_title) +
                                       1; // 1 for the space between title and value
-            switch (interresting_events[i].event_type) {
+            switch (interesting_events[i].event_type) {
             case TYPE_CONF_RECEIVED:
                 clear_cached_confs();
                 break;
@@ -215,30 +228,33 @@ static void message_process(char *const message) {
             case TYPE_PB_RESULT:
                 // AP side we wont have confs, so apply_cached_confs does nothing.
                 if (strstr(value, "success")) {
-                    led_finished();
                     apply_cached_confs();
                     clear_cached_confs();
+                    finished(0);
                 } else {
-                    // We don't want to indicate DPP failure scenarios and instead should allow DPP
-                    // to timeout (after 120 secs).
-                    // This is because:
-                    //  - DPP has a 110 secs timeout on an enrollee hash overlap, so
-                    //    failing fast just lets the user initiate a DPP that will probably fail
-                    //  - There are other statuses that can cause a failure other than
-                    //    TYPE_PB_RESULT=failed. e.g. DPP-AUTH-INIT-FAILED,
-                    //    or TYPE_PB_RESULT=session-overlap, or crashing...
-                    printf("No action on DPP_PB_RESULT=%s\n", value);
+                    // Sometimes we get failed, but sometimes we get session-overlap
+                    // (or simply some kind of crash). Since it all cases this will leave us liable
+                    // to session overlap (120 secs on hostapd, 110 secs according to spec),
+                    // we count this as a failure.
+                    // Issue the failed command after a small delay. This is because
+                    // wpa_supplicant emits back to back failed and started events when a
+                    // dpp_push_button occurs while another is still running, so save some time
+                    // for led_started to cancel the failed_timeout.
+                    uloop_timeout_set(&failed_timeout, 1000);
                 }
+                break;
+            case TYPE_CONF_FAILED:
+                // This can happen if you try to dpp back to the same device.
+                uloop_timeout_set(&failed_timeout, 1000);
                 break;
             case TYPE_PB_STATUS:
                 if (strcmp(value, "started") == 0) {
-                    led_started();
+                    started();
                 }
                 break;
             case TYPE_CTRL_EVENT_TERMINATING:
-                led_finished();
                 printf("Connection to wpa_supplicant lost - exiting\n");
-                uloop_end();
+                finished(1);
                 break;
             default:
                 break;
@@ -263,7 +279,7 @@ static void listener_cb(struct uloop_fd *fd, unsigned int events) {
     }
     if (wpa_ctrl_pending(ctrl_conn) < 0) {
         printf("Connection to wpa_supplicant lost - exiting\n");
-        uloop_end();
+        finished(1);
     }
 }
 

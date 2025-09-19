@@ -14,6 +14,7 @@ let uci;
 
 /* Small publicly visible mode names.
  * Used for top bar indicator and banner.
+ * If you add a new mode, rerun ../morse-boot-prints/generate-banners.sh
  */
 const SHORT_MODE_NAMES = {
 	// EasyMesh wizard modes
@@ -23,6 +24,7 @@ const SHORT_MODE_NAMES = {
 	// 11s Mesh wizard modes
 	'mesh-router': '11s Mesh',
 	'mesh-extender': '11s Mesh',
+	'mesh-gate': '11s Mesh Gate',
 
 	// Standard wizard modes
 	'ap-router': 'Access Point',
@@ -49,7 +51,7 @@ function get_forwarding(network_iface) {
 	}
 
 	const zone = filter(values(uci.get_all('firewall')),
-		z => z['.type'] === 'zone' && network_iface in z.network)[0];
+		z => z['.type'] === 'zone' && (network_iface in z.network || network_iface === z.network))[0];
 	if (!zone) {
 		return {sources: [], dests: []};
 	}
@@ -72,8 +74,8 @@ function get_ports(network_iface) {
 }
 
 
-// Discover if it looks like one of our standard easymesh/router/extender configs.
-function get_wizard_mode(halow_iface) {
+// Discover if it looks like one of our morseapwizard.js configs.
+function get_apwizard_mode(halow_iface) {
 	if (uci.get('prplmesh', 'config', 'enable') === '1') {
 		return 'easymesh';
 	}
@@ -107,6 +109,41 @@ function get_wizard_mode(halow_iface) {
 }
 
 
+// Discover if it looks like one of our standard configs from wizard.js/meshwizard.js/etc.
+function get_ekhwizard_mode(halow_iface) {
+	if (uci.get('prplmesh', 'config', 'enable') === '1') {
+		return 'easymesh';
+	}
+
+	if (uci.get('matter', 'config', 'enable') === '1') {
+		return 'matter';
+	}
+
+	if (!uci.load('network')) {
+		return null;
+	}
+
+	if (halow_iface.mode === 'mesh' && uci.get('mesh11sd', 'mesh_params', 'mesh_gate_announcements') === '1') {
+		return 'gate';
+	}
+
+	const proto = uci.get('network', halow_iface.network, 'proto');
+	const forwarding = get_forwarding(halow_iface.network);
+	const ports = get_ports(halow_iface.network);
+
+	// Strictly, this is not something that appears as a top level option in the ekh wizard config,
+	// but I like identifying routers, and this is a second level option.
+	//
+	// Note that we avoid reporting extender, because Extender in the EKH wizards is a sta with
+	// a separate subnet, unlike the bridged 'Extender' in apwizard.
+	if (proto === 'static' && length(forwarding.sources) && halow_iface.mode in ['mesh', 'ap']) {
+		return 'router';
+	}
+
+	return null;
+}
+
+
 function get_morse_device() {
 	return filter(values(uci.get_all('wireless')),
 		s => s['.type'] === 'wifi-device' && s.type === 'morse' && s.disabled !== '1')[0];
@@ -132,12 +169,13 @@ function get_best_halow_iface(device) {
 }
 
 
-function get_morse_mode(halow_iface) {
+function get_morse_mode(halow_iface, persistent_morse_mode) {
 	if (!halow_iface) {
 		return 'none';
 	}
 
-	const wizard_mode = get_wizard_mode(halow_iface);
+	const wizard_mode = persistent_morse_mode ?
+		get_apwizard_mode(halow_iface) : get_ekhwizard_mode(halow_iface);
 	if (!wizard_mode) {
 		return halow_iface.mode;
 	}
@@ -154,12 +192,13 @@ function query() {
 	}
 	uci.load('prpmesh');
 	uci.load('matter');
+	uci.load('mesh11sd');
 
 	const device = get_morse_device();
 	const iface = device && get_best_halow_iface(device);
-	const morse_mode = get_morse_mode(iface);
-	const mm_mode_stream = popen('persistent_vars_storage.sh READ mm_mode');
+	const mm_mode_stream = popen('persistent_vars_storage.sh READ mm_mode 2> /dev/null');
 	const persistent_morse_mode = mm_mode_stream && trim(mm_mode_stream.read('all'));
+	const morse_mode = get_morse_mode(iface, persistent_morse_mode);
 
 	return {
 		morse_mode,

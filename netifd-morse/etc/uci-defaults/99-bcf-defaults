@@ -36,16 +36,13 @@ fix_bcf_default() {
 			bcf=bcf_mf08251.bin
 		;;
 		morse,ekh04v6)
-			bcf=bcf_ekh04_v4.bin
+			bcf=bcf_ekh04_v6.bin
 		;;
 		morse,artini)
 			bcf=bcf_mm_hl1.bin
 		;;
-		morse,ekh01-mf13455)
-			bcf=bcf_mf13455.bin
-		;;
-		morse,ekh01-mf15457)
-			bcf=bcf_mf15457_v2.bin
+		morse,ekh01-01)
+			bcf=bcf_mf15457.bin
 		;;
 	esac
 

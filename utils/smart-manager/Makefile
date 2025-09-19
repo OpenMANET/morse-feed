@@ -9,10 +9,10 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=smart_manager
 PKG_RELEASE:=1
-PKG_VERSION:=rel_1_14_1_2024_Dec_05
+PKG_VERSION:=rel_1_15_3_2025_Apr_16
 PKG_SOURCE:=$(PKG_NAME)_$(PKG_VERSION).tar.xz
-PKG_SOURCE_URL:=https://github.com/MorseMicro/smart-manager/releases/download/1.14.1/
-PKG_HASH:=e873fb663612071c6550cf77371fe12d6686e324551d601d5ac63b299d5a0c33
+PKG_SOURCE_URL:=https://github.com/MorseMicro/smart-manager/releases/download/1.15.3/
+PKG_HASH:=39d63e7a1d93042d32c76cf0dd217277cb598683dafd596678a13b5a7e5290dc
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)_$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk

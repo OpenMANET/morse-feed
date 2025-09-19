@@ -10,7 +10,7 @@ define Package/wizard-config
   SECTION:=net
   CATEGORY:=Network
   TITLE:=Configure HaLow devices automatically on DHCP client success
-  DEPENDS:=persistent-vars-storage @BUSYBOX_CONFIG_UDHCPC +umdns +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ucode-mod-math
+  DEPENDS:=persistent-vars-storage @BUSYBOX_CONFIG_UDHCPC +umdns +ucode +ucode-mod-fs +ucode-mod-ubus +ucode-mod-uci +ucode-mod-math uhttpd
 endef
 
 define Build/Compile

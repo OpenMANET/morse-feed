@@ -145,6 +145,13 @@ a.advanced-config-mini {
 	min-width: 80px;
 }
 
+.show-info {
+	text-decoration: underline;
+	text-decoration-style: dotted;
+	cursor: help;
+	margin: .25em;
+}
+
 .show-info::after {
 	--help-icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><path d='M10 0A10 10 0 000 10a10 10 0 0010 10 10 10 0 0010-10A10 10 0 0010 0zm1 17H9v-2h2v2zm2.1-7.7l-.9.9c-.8.7-1.2 1.3-1.2 2.8H9v-.5c0-1.1.4-2.1 1.2-2.8l1.2-1.3c.4-.3.6-.8.6-1.4a2 2 0 00-2-2 2 2 0 00-2 2H6a4 4 0 014-4 4 4 0 014 4c0 .9-.4 1.7-.9 2.3z'/></svg>");
 
@@ -154,7 +161,7 @@ a.advanced-config-mini {
 	width: 1em;
 	height: 1em;
 	margin-left: .25em;
-	margin-right: 0.75em;
+	margin-right: .75em;
 	background: var(--primary-color-high);
 	mask-image: var(--help-icon);
 	mask-size: cover;
@@ -162,10 +169,28 @@ a.advanced-config-mini {
 	-webkit-mask-size: cover;
 }
 
-.show-info {
+.show-warning {
 	text-decoration: underline;
 	text-decoration-style: dotted;
 	cursor: help;
+	margin: .25em;
+}
+
+.show-warning::after {
+	/* https://icons.getbootstrap.com/icons/exclamation-triangle-fill/ */
+	--warning-icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2'/></svg>");
+
+	content: "\a0";
+	display: inline-flex;
+	align-items: center;
+	width: 1em;
+	height: 1em;
+	margin-left: .25em;
+	background: var(--primary-color-high);
+	mask-image: var(--warning-icon);
+	mask-size: cover;
+	-webkit-mask-image: var(--warning-icon);
+	-webkit-mask-size: cover;
 }
 
 .cbi-section h3 {

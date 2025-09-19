@@ -110,7 +110,7 @@ function getOrCreateZone(networkSectionId) {
 	// NB It's not necessary to name the zone here, but I think it makes things clearer.
 	uci.add('firewall', 'zone', proposedName);
 	uci.set('firewall', proposedName, 'name', proposedName);
-	uci.set('firewall', proposedName, 'network', networkSectionId);
+	uci.set('firewall', proposedName, 'network', [networkSectionId]);
 	uci.set('firewall', proposedName, 'input', 'ACCEPT');
 	uci.set('firewall', proposedName, 'output', 'ACCEPT');
 	uci.set('firewall', proposedName, 'forward', 'ACCEPT');
@@ -271,40 +271,72 @@ function forceBridge(networkSectionId, bridgeName, bridgeMAC = null) {
  *
  * Be conservative: only remove a bridge if we need to, and only add a bridge if we need to.
  * This reduces the number of changes when interacting with the config page.
- *
- * Returns whether there is a bridge.
  */
-function useBridgeIfNeeded(networkSectionId) {
+function createOrRemoveBridgeAsNeeded(networkSectionId) {
 	const currentDevice = uci.get('network', networkSectionId, 'device');
-	const bridge = uci.sections('network', 'device').find(s => s.type == 'bridge' && s.name == currentDevice);
+	const hasBridge = !!uci.sections('network', 'device').find(s => s.type == 'bridge' && s.name == currentDevice);
+	const needBridge = hasMultipleDevices(networkSectionId);
 
-	if (bridge) {
+	if (hasBridge && !needBridge) {
 		// Do we need to remove this bridge because we have a wifi iface that can't be bridged?
 		// (i.e. it's a sta/adhoc?)
 		// Note that if we have multiple ifaces, we _can't_ safely remove the bridge; instead,
 		// the frontend should fail validation in this situation.
-		if (!hasMultipleDevices(networkSectionId)) {
-			const wifiIfaces = getNetworkWifiIfaces(networkSectionId);
-			// From the above hasMultipleDevices check, there should only be 0 or 1 wifi ifaces.
-			if (wifiIfaces.length === 1) {
-				const iface = wifiIfaces[0];
+		const wifiIfaces = getNetworkWifiIfaces(networkSectionId);
+		// From the above hasMultipleDevices check, there should only be 0 or 1 wifi ifaces.
+		if (wifiIfaces.length === 1) {
+			const iface = wifiIfaces[0];
 
-				if (iface.mode === 'adhoc' || (iface.mode === 'sta' && iface.wds !== '1')) {
-					uci.unset('network', networkSectionId, 'device');
-					return false;
-				}
+			if (iface.mode === 'adhoc' || (iface.mode === 'sta' && iface.wds !== '1')) {
+				uci.unset('network', networkSectionId, 'device');
 			}
 		}
+	} else if (!hasBridge && needBridge) {
+		setBridgeWithPorts(networkSectionId, currentDevice ? [currentDevice] : []);
+	}
+}
 
-		return true;
-	} else {
-		// Do we need to add a bridge because there are too many devices?
-		if (hasMultipleDevices(networkSectionId)) {
-			setBridgeWithPorts(networkSectionId, currentDevice ? [currentDevice] : []);
-			return true;
-		}
+const BRIDGED_NON_WDS_CLIENT_ERROR_TEMPLATE = _(
+`The configuration for the "%s" network is not supported.
 
-		return false;
+If a network has a non-WDS Wi-Fi client, it must be the only device.
+
+This network currently has non-WDS Wi-Fi clients: %s
+
+This network currently has other devices: %s
+
+Please do one of:
+ - remove the non-WDS Wi-Fi clients;
+ - enable WDS for the Wi-Fi clients (if possible); or
+ - remove all other devices from this network to leave a single non-WDS Wi-Fi client.
+`);
+const BRIDGED_PORT_SUMMARY_TEMPLATE = _('A "%s" port');
+const BRIDGED_WIFI_SUMMARY_TEMPLATE = _('A %s Wi-Fi device in "%s" mode with SSID "%s"');
+
+function validateBridge(networkSectionId, wifiDevices) {
+	const currentDevice = uci.get('network', networkSectionId, 'device');
+	const bridge = uci.sections('network', 'device').find(s => s.type == 'bridge' && s.name == currentDevice);
+
+	if (!bridge) {
+		return;
+	}
+
+	const wifiIfaces = getNetworkWifiIfaces(networkSectionId);
+	const isNonWDSClient = wifiIface => (wifiIface.mode === 'adhoc' || (wifiIface.mode === 'sta' && wifiIface.wds !== '1'));
+	const nonWDSWiFiClients = wifiIfaces.filter(isNonWDSClient);
+
+	if (nonWDSWiFiClients.length) {
+		const formatWifiDeviceSummary = wifiIface => BRIDGED_WIFI_SUMMARY_TEMPLATE.format(wifiDevices[wifiIface.device]?.get('type') ?? 'unknown', wifiIface.mode, wifiIface.ssid);
+
+		const otherBridgedDevices = [
+			...L.toArray(bridge.ports).map(port => BRIDGED_PORT_SUMMARY_TEMPLATE.format(port)),
+			...wifiIfaces.filter(wifiIface => !isNonWDSClient(wifiIface)).map(formatWifiDeviceSummary),
+		];
+		throw new TypeError(BRIDGED_NON_WDS_CLIENT_ERROR_TEMPLATE.format(
+			networkSectionId,
+			['', ...nonWDSWiFiClients.map(formatWifiDeviceSummary)].join('\n - '),
+			['', ...otherBridgedDevices].join('\n - '),
+		));
 	}
 }
 
@@ -494,7 +526,8 @@ return baseclass.extend({
 	createDhcp,
 	getOrCreateDnsmasq,
 	getOrCreateDhcp,
-	useBridgeIfNeeded,
+	createOrRemoveBridgeAsNeeded,
+	validateBridge,
 	forceBridge,
 	getNetworkDevices,
 	setNetworkDevices,

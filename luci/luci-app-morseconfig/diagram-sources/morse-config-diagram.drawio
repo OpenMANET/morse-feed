@@ -119,7 +119,7 @@
             <mxGeometry x="603" y="232" width="118" height="40" as="geometry" />
           </mxCell>
         </object>
-        <object label="STA_WIFI24_INT" group="STA_WIFI24" slot="STA_WIFI24_INT" id="IulhXAhDTtXNDePGMQHC-35">
+        <object label="STA_WIFI_INT" group="STA_WIFI" slot="STA_WIFI_INT" id="IulhXAhDTtXNDePGMQHC-35">
           <mxCell style="text;html=1;strokeColor=#571c76;fillColor=#fbebff;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;sketch=1;curveFitting=1;jiggle=2;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="588" y="146.5" width="116" height="40" as="geometry" />
           </mxCell>
@@ -144,7 +144,7 @@
             <mxGeometry x="26" y="188" width="130" height="40" as="geometry" />
           </mxCell>
         </object>
-        <object label="AP_UPLINK_WIFI24_INT" group="AP_UPLINK_WIFI24" slot="AP_UPLINK_WIFI24_INT" id="IulhXAhDTtXNDePGMQHC-40">
+        <object label="AP_UPLINK_WIFI_INT" group="AP_UPLINK_WIFI" slot="AP_UPLINK_WIFI_INT" id="IulhXAhDTtXNDePGMQHC-40">
           <mxCell style="text;html=1;strokeColor=#571c76;fillColor=#fbebff;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;sketch=1;curveFitting=1;jiggle=2;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="199" y="135.5" width="130" height="40" as="geometry" />
           </mxCell>
@@ -208,12 +208,12 @@
             <mxGeometry x="121" y="369.5" width="142" height="30" as="geometry" />
           </mxCell>
         </object>
-        <object label="STA_WIFI24_DEVICE" group="STA_WIFI24" slot="STA_WIFI24_DEVICE" id="IulhXAhDTtXNDePGMQHC-9">
+        <object label="STA_WIFI_DEVICE" group="STA_WIFI" slot="STA_WIFI_DEVICE" id="IulhXAhDTtXNDePGMQHC-9">
           <mxCell style="fontColor=#0066CC;verticalAlign=top;verticalLabelPosition=bottom;labelPosition=center;align=center;html=1;outlineConnect=0;fillColor=#CCCCCC;strokeColor=#6881B3;gradientColor=none;gradientDirection=north;strokeWidth=2;shape=image;imageAspect=0;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB2ZXJzaW9uPSIxLjEiIGlkPSJMYXllcl8xIiB4PSIwcHgiIHk9IjBweCIgdmlld0JveD0iMCAwIDc0IDQyIiBzdHlsZT0iZW5hYmxlLWJhY2tncm91bmQ6bmV3IDAgMCA3NCA0MjsiIHhtbDpzcGFjZT0icHJlc2VydmUiPiYjeGE7PHN0eWxlIHR5cGU9InRleHQvY3NzIj4mI3hhOwkuc3Qwe2ZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO2ZpbGw6IzM3MzczOTt9JiN4YTsJLnN0MXtmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtmaWxsOiNBMTlEOUU7fSYjeGE7CS5zdDJ7ZmlsbC1ydWxlOmV2ZW5vZGQ7Y2xpcC1ydWxlOmV2ZW5vZGQ7ZmlsbDojQzVDOENFO30mI3hhOzwvc3R5bGU+JiN4YTs8Zz4mI3hhOwk8cGF0aCBjbGFzcz0ic3QwIiBkPSJNNjUuMSwwLjRIOS41Yy0wLjYsMC0xLjIsMC41LTEuMiwxLjJ2MzYuN2g1Ny45VjEuNkM2Ni4yLDAuOSw2NS43LDAuNCw2NS4xLDAuNHoiLz4mI3hhOwk8cmVjdCB4PSIxMCIgeT0iMy40IiBjbGFzcz0ic3QxIiB3aWR0aD0iNTQuNiIgaGVpZ2h0PSIzMy4yIi8+JiN4YTsJPHBvbHlnb24gY2xhc3M9InN0MiIgcG9pbnRzPSI2NC44LDMuNCAxMC4yLDMuNCA0My40LDM2LjYgNjQuOCwzNi42Ii8+JiN4YTsJPHBhdGggY2xhc3M9InN0MCIgZD0iTTEuMywzOC45YzAsMS41LDEuMiwyLjgsMi44LDIuOGg2Ni41YzEuNSwwLDIuOC0xLjIsMi44LTIuOEgxLjN6Ii8+JiN4YTsJPHBhdGggY2xhc3M9InN0MiIgZD0iTTM3LjMsMS4yYy0wLjMsMC0wLjYsMC4zLTAuNiwwLjZjMCwwLjMsMC4zLDAuNiwwLjYsMC42YzAuMywwLDAuNi0wLjMsMC42LTAuNkMzNy45LDEuNSwzNy42LDEuMiwzNy4zLDEuMnoiLz4mI3hhOwk8cGF0aCBjbGFzcz0ic3QxIiBkPSJNMjguNywzOC45YzAsMC4zLDAuMiwwLjUsMC41LDAuNWgxNi4zYzAuMywwLDAuNS0wLjIsMC41LTAuNUgyOC43eiIvPiYjeGE7PC9nPiYjeGE7PC9zdmc+;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="623" y="17" width="100" height="55" as="geometry" />
           </mxCell>
         </object>
-        <object label="&lt;p&gt;&lt;font style=&quot;font-size: 12px;&quot;&gt;STA_WIFI24_XIP&lt;/font&gt;&lt;/p&gt;" group="STA_WIFI24" slot="STA_WIFI24_XIP" id="IulhXAhDTtXNDePGMQHC-11">
+        <object label="&lt;p&gt;&lt;font style=&quot;font-size: 12px;&quot;&gt;STA_WIFI_XIP&lt;/font&gt;&lt;/p&gt;" group="STA_WIFI" slot="STA_WIFI_XIP" id="IulhXAhDTtXNDePGMQHC-11">
           <mxCell style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="721" y="31" width="99" height="30" as="geometry" />
           </mxCell>
@@ -228,22 +228,22 @@
             <mxGeometry x="543" y="180" width="32" height="85" as="geometry" />
           </mxCell>
         </object>
-        <object label="AP_WIFI24_INT" group="AP_WIFI24" slot="AP_WIFI24_INT" id="P93bP9fnSOs7cqkWcT01-1">
+        <object label="AP_WIFI_INT" group="AP_WIFI" slot="AP_WIFI_INT" id="P93bP9fnSOs7cqkWcT01-1">
           <mxCell style="text;html=1;strokeColor=#571c76;fillColor=#fbebff;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=11;sketch=1;curveFitting=1;jiggle=2;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="223" y="184.75" width="130" height="40" as="geometry" />
           </mxCell>
         </object>
-        <object label="AP_WIFI24_DEVICE" group="AP_WIFI24" slot="AP_WIFI24_DEVICE" id="P93bP9fnSOs7cqkWcT01-3">
+        <object label="AP_WIFI_DEVICE" group="AP_WIFI" slot="AP_WIFI_DEVICE" id="P93bP9fnSOs7cqkWcT01-3">
           <mxCell style="fontColor=#0066CC;verticalAlign=top;verticalLabelPosition=bottom;labelPosition=center;align=center;html=1;outlineConnect=0;fillColor=#CCCCCC;strokeColor=#6881B3;gradientColor=none;gradientDirection=north;strokeWidth=2;shape=image;imageAspect=0;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB2ZXJzaW9uPSIxLjEiIGlkPSJMYXllcl8xIiB4PSIwcHgiIHk9IjBweCIgdmlld0JveD0iMCAwIDc0IDQyIiBzdHlsZT0iZW5hYmxlLWJhY2tncm91bmQ6bmV3IDAgMCA3NCA0MjsiIHhtbDpzcGFjZT0icHJlc2VydmUiPiYjeGE7PHN0eWxlIHR5cGU9InRleHQvY3NzIj4mI3hhOwkuc3Qwe2ZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO2ZpbGw6IzM3MzczOTt9JiN4YTsJLnN0MXtmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtmaWxsOiNBMTlEOUU7fSYjeGE7CS5zdDJ7ZmlsbC1ydWxlOmV2ZW5vZGQ7Y2xpcC1ydWxlOmV2ZW5vZGQ7ZmlsbDojQzVDOENFO30mI3hhOzwvc3R5bGU+JiN4YTs8Zz4mI3hhOwk8cGF0aCBjbGFzcz0ic3QwIiBkPSJNNjUuMSwwLjRIOS41Yy0wLjYsMC0xLjIsMC41LTEuMiwxLjJ2MzYuN2g1Ny45VjEuNkM2Ni4yLDAuOSw2NS43LDAuNCw2NS4xLDAuNHoiLz4mI3hhOwk8cmVjdCB4PSIxMCIgeT0iMy40IiBjbGFzcz0ic3QxIiB3aWR0aD0iNTQuNiIgaGVpZ2h0PSIzMy4yIi8+JiN4YTsJPHBvbHlnb24gY2xhc3M9InN0MiIgcG9pbnRzPSI2NC44LDMuNCAxMC4yLDMuNCA0My40LDM2LjYgNjQuOCwzNi42Ii8+JiN4YTsJPHBhdGggY2xhc3M9InN0MCIgZD0iTTEuMywzOC45YzAsMS41LDEuMiwyLjgsMi44LDIuOGg2Ni41YzEuNSwwLDIuOC0xLjIsMi44LTIuOEgxLjN6Ii8+JiN4YTsJPHBhdGggY2xhc3M9InN0MiIgZD0iTTM3LjMsMS4yYy0wLjMsMC0wLjYsMC4zLTAuNiwwLjZjMCwwLjMsMC4zLDAuNiwwLjYsMC42YzAuMywwLDAuNi0wLjMsMC42LTAuNkMzNy45LDEuNSwzNy42LDEuMiwzNy4zLDEuMnoiLz4mI3hhOwk8cGF0aCBjbGFzcz0ic3QxIiBkPSJNMjguNywzOC45YzAsMC4zLDAuMiwwLjUsMC41LDAuNWgxNi4zYzAuMywwLDAuNS0wLjIsMC41LTAuNUgyOC43eiIvPiYjeGE7PC9nPiYjeGE7PC9zdmc+;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="307" y="17" width="100" height="55" as="geometry" />
           </mxCell>
         </object>
-        <object label="&lt;p&gt;&lt;font style=&quot;font-size: 12px;&quot;&gt;AP_WIFI24_XIP&lt;/font&gt;&lt;/p&gt;" group="AP_WIFI24" slot="AP_WIFI24_XIP" id="P93bP9fnSOs7cqkWcT01-4">
+        <object label="&lt;p&gt;&lt;font style=&quot;font-size: 12px;&quot;&gt;AP_WIFI_XIP&lt;/font&gt;&lt;/p&gt;" group="AP_WIFI" slot="AP_WIFI_XIP" id="P93bP9fnSOs7cqkWcT01-4">
           <mxCell style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="IulhXAhDTtXNDePGMQHC-1" vertex="1">
             <mxGeometry x="396" y="29.5" width="120" height="30" as="geometry" />
           </mxCell>
         </object>
-        <UserObject label="" group="AP_UPLINK_WIFI24" id="U4GTl9PUx0q-XUekHGRh-11">
+        <UserObject label="" group="AP_UPLINK_WIFI" id="U4GTl9PUx0q-XUekHGRh-11">
           <mxCell style="curved=1;endArrow=none;html=1;rounded=0;startArrow=none;startFill=0;strokeWidth=4;endFill=0;targetPerimeterSpacing=30;sourcePerimeterSpacing=10;startSize=5;endSize=5;fillColor=#f5f5f5;strokeColor=#CCCCCC;dashed=1;" parent="IulhXAhDTtXNDePGMQHC-1" target="IulhXAhDTtXNDePGMQHC-14" edge="1">
             <mxGeometry width="50" height="50" relative="1" as="geometry">
               <mxPoint x="193" y="177" as="sourcePoint" />
@@ -252,14 +252,14 @@
             </mxGeometry>
           </mxCell>
         </UserObject>
-        <object label="AP_UPLINK_WIFI24_LINK" group="AP_UPLINK_WIFI24" slot="AP_UPLINK_WIFI24_LINK" id="U4GTl9PUx0q-XUekHGRh-12">
+        <object label="AP_UPLINK_WIFI_LINK" group="AP_UPLINK_WIFI" slot="AP_UPLINK_WIFI_LINK" id="U4GTl9PUx0q-XUekHGRh-12">
           <mxCell style="edgeLabel;html=1;align=left;verticalAlign=middle;resizable=0;points=[];labelPosition=center;verticalLabelPosition=middle;" parent="U4GTl9PUx0q-XUekHGRh-11" vertex="1" connectable="0">
             <mxGeometry x="0.0671" y="4" relative="1" as="geometry">
               <mxPoint x="-17" y="-18" as="offset" />
             </mxGeometry>
           </mxCell>
         </object>
-        <UserObject label="" group="STA_WIFI24" id="U4GTl9PUx0q-XUekHGRh-13">
+        <UserObject label="" group="STA_WIFI" id="U4GTl9PUx0q-XUekHGRh-13">
           <mxCell style="curved=1;endArrow=none;html=1;rounded=0;startArrow=none;startFill=0;strokeWidth=4;endFill=0;targetPerimeterSpacing=30;sourcePerimeterSpacing=10;startSize=5;endSize=5;fillColor=#f5f5f5;strokeColor=#CCCCCC;dashed=1;" parent="IulhXAhDTtXNDePGMQHC-1" edge="1">
             <mxGeometry width="50" height="50" relative="1" as="geometry">
               <mxPoint x="573" y="174" as="sourcePoint" />
@@ -268,14 +268,14 @@
             </mxGeometry>
           </mxCell>
         </UserObject>
-        <object label="STA_WIFI24_LINK" group="STA_WIFI24" slot="STA_WIFI24_LINK" id="U4GTl9PUx0q-XUekHGRh-14">
+        <object label="STA_WIFI_LINK" group="STA_WIFI" slot="STA_WIFI_LINK" id="U4GTl9PUx0q-XUekHGRh-14">
           <mxCell style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="U4GTl9PUx0q-XUekHGRh-13" vertex="1" connectable="0">
             <mxGeometry x="0.0671" y="4" relative="1" as="geometry">
               <mxPoint x="27" y="-17" as="offset" />
             </mxGeometry>
           </mxCell>
         </object>
-        <UserObject label="" group="AP_WIFI24" id="U4GTl9PUx0q-XUekHGRh-16">
+        <UserObject label="" group="AP_WIFI" id="U4GTl9PUx0q-XUekHGRh-16">
           <mxCell style="curved=1;endArrow=none;html=1;rounded=0;startArrow=none;startFill=0;strokeWidth=4;endFill=0;targetPerimeterSpacing=30;sourcePerimeterSpacing=10;startSize=5;endSize=5;fillColor=#f5f5f5;strokeColor=#CCCCCC;dashed=1;" parent="IulhXAhDTtXNDePGMQHC-1" edge="1">
             <mxGeometry width="50" height="50" relative="1" as="geometry">
               <mxPoint x="339.5" y="182" as="sourcePoint" />
@@ -284,7 +284,7 @@
             </mxGeometry>
           </mxCell>
         </UserObject>
-        <object label="AP_WIFI24_LINK" group="AP_WIFI24" slot="AP_WIFI24_LINK" id="U4GTl9PUx0q-XUekHGRh-17">
+        <object label="AP_WIFI_LINK" group="AP_WIFI" slot="AP_WIFI_LINK" id="U4GTl9PUx0q-XUekHGRh-17">
           <mxCell style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="U4GTl9PUx0q-XUekHGRh-16" vertex="1" connectable="0">
             <mxGeometry x="0.0671" y="4" relative="1" as="geometry">
               <mxPoint x="17" y="-19" as="offset" />

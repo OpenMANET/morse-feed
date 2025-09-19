@@ -19,8 +19,8 @@ It also has some interesting security issues:
  - credentials for the router are available locally via HTTP
    (i.e. if you're on the local network, you have access)
  - if the first DHCP client address is obtained from something other
-   than a HaLowLink, it may discover a _different_ _wizard-config._tcp
-   service via mDNS, allowing someone on the local network to tell it
+   than a HaLowLink, it may discover a _different_ wizard-config umdns
+   uhttpd TXT record, allowing someone on the local network to tell it
    to connect to an entirely different network. To make this less
    serious, the device will only reconfigure itself the first time
    it connects to a network.
@@ -34,24 +34,27 @@ future we have the time to implement this behaviour via DPP.
 
 END WARNING!!!
 
-    wizard_config serverstart
+    wizard_config server
 
-        => configure umdns so a _wizard-config._tcp service is advertised
-           and create a /www/wizard_config.json file for our http server.
+        => configure uhttpd so the _http._tcp umdns advertisement 
+		   shows a wizard-config TXT record and create a 
+		   /www/wizard_config.json file for our http server.
            This is usually run via /etc/init.d/wizard-config
 
     wizard_config serverstop
 
-        => cleanup: remove the umdns entry for the service.
-           This is usually run via /etc/init.d/wizard-config
+        => cleanup: remove the wizard-config TXT record from the
+		   umdns entry for the uhttpd service. This is usually run 
+		   via /etc/init.d/wizard-config
 
     wizard_config client <preferredip>
 
-        => use umdns to find a _wizard-config._tcp service, preferring
-           preferredip if available. Then make an HTTP request against
-           http://ip:port/wizard_config.json, and interpret this file
-           to mutate (and subsequently reload) the device config.
-           This is usually run by /etc/user.udhcpc.d/wizard-config
+        => use umdns to find a _http._tcp service with a wizard-config 
+		   TXT record, preferring preferredip if available. Then make 
+		   an HTTP request against http://ip:port/wizard_config.json, 
+		   and interpret this file to mutate (and subsequently reload) 
+		   the device config. This is usually run by 
+		   /etc/user.udhcpc.d/wizard-config
 
 The JSON blob response currently looks something like:
 
@@ -78,11 +81,11 @@ So it\'s easier to test individual parts of the system, it also supports
 the following commands. These should only be needed for development and
 testing:
 
-    wizard_config _apply_config "JSONBLOB"
-    wizard_config _find_service_urls
-    wizard_config _fetch_config url1 url2
-    wizard_config _umdns_configure
-    wizard_config _generate_config
+    wizard-config _apply_config "JSONBLOB"
+    wizard-config _find_service_urls
+    wizard-config _fetch_config url1 url2
+    wizard-config _umdns_configure
+    wizard-config _generate_config
 
 `;
 
@@ -95,30 +98,20 @@ import { rand } from "math";
 
 /* mDNS name of the service.
  */
-const SERVICE = "_wizard-config._tcp";
+const SERVICE = "_http._tcp";
 
 const WWW_ROOT = "/www";
 const PATH_V1 = "/wizard-config.json";
 
 
 /* mDNS service definition.
- *
- * This echoes the kind of umdns service that we'd get for free if
- * we just turned on umdns in the procd script, but unfortunately this
- * would require our service to be persistent (umdns will only advertise
- * services where running:true) and there's no reason for us to be persistent
- * (since uhttpd is doing the actual persistent work here). I considered
- * extending uhttpd so it could advertise custom services, but this seemed
- * like a heavier/messier touch despite its architectural purity.
+ * 
+ * uhttpd is setup to advertise custom services via it's TXT records.
+ * These values must be key-value pairs and should use a 
+ * <package>_<attribute>=<value> format where applicable.
  */
-const UMDNS_CONFIG_LOCATION = "/etc/umdns/wizard-config.json";
-const UMDNS_CONFIG = {
-	"custom-wizard-config_80": {
-		"service": "_wizard-config._tcp.local",
-		"port": 80,
-		"txt": ["path_v1=" + PATH_V1],
-	},
-};
+const UMDNS_TXT_KEY = "wizard-config_path_v1";
+const UMDNS_TXT_RECORD = UMDNS_TXT_KEY + "=" + PATH_V1;
 
 /* This IP is automatically set, but isn't likely to be addressable from
  * the device (and probably points to itself, which is dangerous if it
@@ -136,14 +129,16 @@ const HTTP_RETRY_LIMIT = 3;
  *
  * Example ubus browse output:
  * 
- * # ubus call umdns browse '{"service": "_wizard-config._tcp", "array": true}'
+ * # ubus call umdns browse '{"service": "_http._tcp", "array": true}'
  * {
- *	"_wizard-config._tcp": {
+ *	"_http._tcp": {
  *		"halowlink1-f4a1": {
  *			"iface": "br-ahwlan",
  *			"host": "halowlink1-f4a1.local",
  *			"port": 80,
- *			"txt": ["path=/wizard-config.json"]
+ *			"txt": ["daemon=uhttpd"]
+ *			"txt": ["rangetest_api_version=0.1.0"]
+ *			"txt": ["wizard-config_path_v1=/wizard-config.json"]
  *			"ipv4": ["10.11.0.227"],
  *			"ipv6": ["fd82:57:cd72::1", "fe80::9683:c4ff:fe55:f4a2"]
  *		}
@@ -298,11 +293,7 @@ function apply_config (uci, config) {
 		uci.set("wireless", backhaul_sta, "key", config.key);
 		uci.set("wireless", backhaul_sta, "multi_ap", "1");
 		uci.set("wireless", backhaul_sta, "wds", "1");
-		// TODO: we probably should do this, but...
-		// uci.set("wireless", backhaul_sta, "sae_pwe", "1");
-		// uci.set("wireless", backhaul_sta, "encryption", config.encryption);
-		// ...this makes it the same as our WPS thing.
-		uci.set("wireless", backhaul_sta, "encryption", "psk");
+		uci.set("wireless", backhaul_sta, "encryption", config.encryption);
 		uci.set("wireless", backhaul_sta, "ifname", "wlan-prpl-1");
 		// Use backhaul link for showing halow info, since that's the one
 		// most likely to indicate that it's working (and traffic from AP
@@ -399,7 +390,7 @@ function find_service_urls(ubus, dhcp_server_ipv4) {
 		let path;
 		for (let txt in service.txt) {
 			txt = split(txt, "=");
-			if (txt[0] === "path_v1") {
+			if (txt[0] === UMDNS_TXT_KEY) {
 				path = txt[1];
 			}
 		}
@@ -435,25 +426,37 @@ function write_if_necessary(fname, string) {
 }
 
 
-function umdns_configure(ubus, umdns_config) {
-	let requires_reload = true;
-	if (umdns_config) {
-		requires_reload = write_if_necessary(UMDNS_CONFIG_LOCATION, `${umdns_config}`);
-	} else {
-		requires_reload = unlink(UMDNS_CONFIG_LOCATION);
+function umdns_configure(ubus) {
+	const uci = cursor();
+	let uhttpd_mdns_txt = uci.get('uhttpd', 'main', 'mdns_txt') ?? [];
+	if (type(uhttpd_mdns_txt) !== "array") {
+		uhttpd_mdns_txt = [uhttpd_mdns_txt];
 	}
 
-	if (requires_reload) {
-		ubus.call("umdns", "reload", {});
-		assert(!ubus.error(), `Unable to reload umdns: ${ubus.error()}\n`);
+	if (index(uhttpd_mdns_txt, UMDNS_TXT_RECORD) === -1) {
+		push(uhttpd_mdns_txt, UMDNS_TXT_RECORD);
+		uci.set('uhttpd', 'main', 'mdns_txt', uhttpd_mdns_txt);
+		commit_config(ubus, uci);
 	}
 };
 
 
 function serverstop(ubus) {
-	system(`rm -f ${UMDNS_CONFIG_LOCATION}`);
-	ubus.call("umdns", "reload", {});
-	assert(!ubus.error(), `Unable to reload umdns: ${ubus.error()}\n`);
+	const uci = cursor();
+	let uhttpd_mdns_txt = uci.get('uhttpd', 'main', 'mdns_txt') ?? [];
+	if (type(uhttpd_mdns_txt) !== "array") {
+		uhttpd_mdns_txt = [uhttpd_mdns_txt];
+	}
+
+	uhttpd_mdns_txt = filter(uhttpd_mdns_txt, txt_record => txt_record !== UMDNS_TXT_RECORD);
+
+	if (length(uhttpd_mdns_txt) === 0) {
+		uci.delete('uhttpd', 'main', 'mdns_txt');
+	} else {
+		uci.set('uhttpd', 'main', 'mdns_txt', uhttpd_mdns_txt);
+	}
+
+	commit_config(ubus, uci);
 }
 
 
@@ -526,9 +529,9 @@ const COMMANDS = {
 	server: (ubus, uci) => {
 		try {
 			write_config(generate_config(uci));
-			umdns_configure(ubus, UMDNS_CONFIG);
+			umdns_configure(ubus);
 		} catch (e) {
-			umdns_configure(ubus, null);
+			serverstop(ubus);
 		}
 	},
 
@@ -549,8 +552,8 @@ const COMMANDS = {
 	},
 
 	_umdns_configure: (ubus, _uci) => {
-		umdns_configure(ubus, UMDNS_CONFIG);
-		print("Configured. Other devices should see a _wizard-config._tcp service on this device.\n");
+		umdns_configure(ubus);
+		print(`Configured. Other devices should see a _http._tcp service which includes a TXT record: "${UMDNS_TXT_RECORD}".\n`);
 	},
 
 	_generate_config: (_ubus, uci) => {
