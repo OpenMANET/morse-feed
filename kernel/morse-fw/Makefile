@@ -91,4 +91,5 @@ endef
 
 $(eval $(call BuildPackage,morse-fw-6108))
 $(eval $(call BuildPackage,morse-fw-6108-tlm))
-$(eval $(call BuildPackage,morse-fw-8108))
+# There is a mismatch in the availability of mm8108 firmware and the publicly released OpenWrt source code.
+# $(eval $(call BuildPackage,morse-fw-8108))

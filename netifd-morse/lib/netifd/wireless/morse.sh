@@ -18,7 +18,7 @@ MM_MOD_BOOL="enable_mac80211_connection_monitor mcs10_mode enable_rts_8mhz
 			enable_watchdog no_hwcrypt enable_raw enable_arp_offload enable_dynamic_ps_offload
 			enable_coredump thin_lmac enable_mbssid_ie enable_trav_pilot enable_cts_to_self enable_airtime_fairness
 			enable_twt enable_bcn_change_seq_monitor enable_dhcpc_offload enable_ibss_probe_filtering enable_auto_duty_cycle
-			enable_auto_mpsw enable_mcast_whitelist log_modparams_on_boot enable_fixed_rate spi_use_edge_irq"
+			enable_auto_mpsw enable_mcast_whitelist log_modparams_on_boot enable_fixed_rate spi_use_edge_irq enable_mcast_rate_control"
 MM_MOD_STRING="bcf serial country test_mode debug_mask macaddr_octet mcs_mask dhcpc_lease_update_script"
 MM_MOD_UNKNOWN=
 MOD_PARAMS=
