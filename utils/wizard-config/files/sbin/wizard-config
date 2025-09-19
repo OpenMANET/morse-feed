@@ -251,6 +251,9 @@ function apply_config (uci, config) {
 		uci.set("wireless", morse_iface, "ssid", config.ssid);
 		uci.set("wireless", morse_iface, "key", config.key);
 		uci.set("wireless", morse_iface, "encryption", config.encryption);
+		// Force desired multicast settings on the Morse radio
+		uci.set("wireless", morse_device, "enable_mcast_whitelist", "0");
+		uci.set("wireless", morse_device, "enable_mcast_rate_control", "1");
 		break;
 	case 'mesh11s':
 		check_config(config, ["country", "channel", "mesh_id", "key", "encryption"]);
@@ -260,6 +263,8 @@ function apply_config (uci, config) {
 		uci.set("wireless", morse_iface, "mesh_id", config.mesh_id);
 		uci.set("wireless", morse_iface, "key", config.key);
 		uci.set("wireless", morse_iface, "encryption", config.encryption);
+		uci.set("wireless", morse_device, "enable_mcast_whitelist", "0");
+		uci.set("wireless", morse_device, "enable_mcast_rate_control", "1");
 		break;
 	case 'prplmesh':
 		check_config(config, ["country", "channel", "ssid", "key", "encryption"]);
