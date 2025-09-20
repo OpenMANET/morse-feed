@@ -484,6 +484,8 @@ function generate_config(uci) {
 				mesh_id: uci.get("wireless", iface, "mesh_id"),
 				key: uci.get("wireless", iface, "key"),
 				encryption: uci.get("wireless", iface, "encryption"),
+				enable_mcast_whitelist: "0",
+				enable_mcast_rate_control: "1",
 			};
 		}
 	}
@@ -497,6 +499,8 @@ function generate_config(uci) {
 				ssid: uci.get("wireless", iface, "ssid"),
 				key: uci.get("wireless", iface, "key"),
 				encryption: uci.get("wireless", iface, "encryption"),
+				enable_mcast_whitelist: "0",
+				enable_mcast_rate_control: "1",
 			};
 		}
 	}
