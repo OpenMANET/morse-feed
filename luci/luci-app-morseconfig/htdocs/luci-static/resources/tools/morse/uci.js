@@ -396,6 +396,7 @@ function getNetworkDevices(sectionId) {
 	return res ? L.toArray(res) : [];
 }
 
+// Set the devices for a network section, creating a bridge if necessary.
 function setNetworkDevices(sectionId, devices) {
 	const device = uci.get('network', sectionId, 'device');
 	const deviceSection = uci.sections('network', 'device')
@@ -408,6 +409,66 @@ function setNetworkDevices(sectionId, devices) {
 	} else if (devices.length > 1) {
 		setBridgeWithPorts(sectionId, devices);
 	}
+}
+
+// Get all network interfaces (names of sections in uci network).
+function getNetworkInterfaces() {
+	return uci.sections('network', 'interface')
+		.filter(s => s && s['.name'])
+		.map(s => s['.name']);
+}
+
+// Return the batman interface for a network, or null if none exists.
+// Note that this does NOT create a batman interface if one doesn't exist.
+// USE setupBatmanOnNetwork TO CREATE IF NECESSARY
+function getBatmanIfaceForNetwork(networkSectionId) {
+	const ifaces = getNetworkInterfaces();
+	if (!ifaces.includes(networkSectionId)) {
+		return null;
+	}
+	for (const iface of ifaces) {
+		const devSection = uci.sections('network', 'interface').find(s => s.name === iface);
+		if (devSection && devSection.proto === 'batadv') {
+			return iface;
+		}
+	}
+
+	return null;
+}
+
+function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client') {
+	const batmanIface = getBatmanIfaceForNetwork(networkSectionId);
+	if (batmanIface) {
+		return batmanIface;
+	}
+
+	const batmanDevice = uci.add('network', 'interface');
+	uci.set('network', batmanDevice, 'name', 'bat0');
+	uci.set('network', batmanDevice, 'proto', 'batadv');
+	uci.set('network', batmanDevice, 'routing_algo', 'BATMAN_IV');
+	uci.set('network', batmanDevice, 'bridge_loop_avoidance', '1');
+	if (gwMode) {
+		uci.set('network', batmanDevice, 'gw_mode', gwMode);
+	}
+	uci.set('network', batmanDevice, 'hop_penalty', '30');
+
+	return uci.get('network', batmanDevice, 'name');
+}
+
+function setupBatmanInterfaceOnDevice(deviceName) {
+	const batmanIfaceName = 'batmesh0';
+	// See if there's already a batman interface on this device
+	const batmanDevice= uci.sections('network', 'interface').find(s => s.proto === 'batadv' && s.batdev === deviceName);
+	if (batmanDevice) {
+		return batmanIfaceName;
+	}
+
+	const batmanIFace = uci.add('network', 'interface');
+	uci.set('network', batmanIFace, 'name', batmanIfaceName);
+	uci.set('network', batmanIFace, 'proto', 'batadv_hardif');
+	uci.set('network', batmanIFace, 'master', deviceName);
+
+	return uci.get('network', batmanIFace, 'name');
 }
 
 function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
@@ -542,4 +603,7 @@ return baseclass.extend({
 	getFirstNetmask,
 	getEthernetPorts,
 	getEthernetStaticIp,
+	getNetworkInterfaces,
+	setupBatmanDeviceOnNetwork,
+	setupBatmanInterfaceOnDevice,
 });
