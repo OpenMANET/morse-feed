@@ -259,26 +259,23 @@ return wizard.AbstractWizardView.extend({
 				morseuci.getOrCreateForwarding(iface, 'lan', 'mmrouter');
 			}
 
-			// Setup batman-adv on ahwlan if not already
-			if (!morseuci.getBatmanIfaceForNetwork('ahwlan')) {
-				// Setup batman device & interface
-				// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
-				// so that scripts and firewall rules etc. can rely on these names.
-				// Batman will be configured as server (i.e. gateway mode) because we're a mesh gate.
-				const batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'server');
-				const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
+			// Setup batman device & interface
+			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
+			// so that scripts and firewall rules etc. can rely on these names.
+			// Batman will be configured as server (i.e. gateway mode) because we're a mesh gate.
+			const batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'server');
+			const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
 
-				// Add batman interface to ahwlan bridge if present
-				const devices = morseuci.getNetworkDevices('br-ahwlan');
-				if (devices.length) {
-					uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
-				}
-
-				// change wifi-iface ahwlan to use batman interface default_radio0
-				uci.set('wireless', morseInterfaceName, 'network', batmanIface);
-				// Disable mesh11sd to use batman-adv instead
-				uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
+			// Add batman interface to ahwlan bridge if present
+			const devices = morseuci.getNetworkDevices('br-ahwlan');
+			if (devices.length) {
+				uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
 			}
+
+			// change wifi-iface ahwlan to use batman interface default_radio0
+			uci.set('wireless', morseInterfaceName, 'network', batmanIface);
+			// Disable mesh11sd to use batman-adv instead
+			uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
 
 		} else {
 			if (device_mode_meshpoint === 'extender') { // i.e. router
@@ -299,23 +296,20 @@ return wizard.AbstractWizardView.extend({
 				uci.set('network', iface, 'proto', 'dhcp');
 			}
 
-			// Setup batman-adv on ahwlan if not already
-			if (!morseuci.getBatmanIfaceForNetwork('ahwlan')) {
-				// Setup batman device & interface
-				// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
-				// so that scripts and firewall rules etc. can rely on these names.
-				const batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'client');
-				const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
-				// Add batman interface to ahwlan bridge if present
-				const devices = morseuci.getNetworkDevices('br-ahwlan');
-				if (devices.length) {
-					uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
-				}
-				// change wifi-iface ahwlan to use batman interface default_radio0
-				uci.set('wireless', morseInterfaceName, 'network', batmanIface);
-				// Disable mesh11sd to use batman-adv instead
-				uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
+			// Setup batman device & interface
+			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
+			// so that scripts and firewall rules etc. can rely on these names.
+			const batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'client');
+			const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
+			// Add batman interface to ahwlan bridge if present
+			const devices = morseuci.getNetworkDevices('br-ahwlan');
+			if (devices.length) {
+				uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
 			}
+			// change wifi-iface ahwlan to use batman interface default_radio0
+			uci.set('wireless', morseInterfaceName, 'network', batmanIface);
+			// Disable mesh11sd to use batman-adv instead
+			uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
 		}
 	},
 
