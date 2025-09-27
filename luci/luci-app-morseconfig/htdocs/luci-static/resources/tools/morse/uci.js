@@ -436,24 +436,27 @@ function getBatmanIfaceForNetwork(networkSectionId) {
 	return null;
 }
 
-function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client') {
+function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client', deviceName = 'bat0') {
 	const batmanIface = getBatmanIfaceForNetwork(networkSectionId);
 	if (batmanIface) {
 		return batmanIface;
 	}
+	// See if there's already a batman device on this network
+	if (!uci.get('network', deviceName)) {
+		uci.add('network', 'interface', deviceName);
 
-	const batmanDevice = uci.add('network', 'interface');
-	uci.set('network', batmanDevice, 'name', 'bat0');
-	uci.set('network', batmanDevice, 'proto', 'batadv');
-	uci.set('network', batmanDevice, 'routing_algo', 'BATMAN_IV');
-	uci.set('network', batmanDevice, 'bridge_loop_avoidance', '1');
-	uci.set('network', batmanDevice, 'disabled', '0')
-	if (gwMode) {
-		uci.set('network', batmanDevice, 'gw_mode', gwMode);
+		uci.set('network', deviceName, 'proto', 'batadv');
+		uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
+		uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
+		uci.set('network', deviceName, 'disabled', '0')
+		uci.set('network', deviceName, 'hop_penalty', '30');
 	}
-	uci.set('network', batmanDevice, 'hop_penalty', '30');
 
-	return uci.get('network', batmanDevice, 'name');
+	if (gwMode) {
+		uci.set('network', deviceName, 'gw_mode', gwMode);
+	}
+
+	return uci.get('network', deviceName, 'name');
 }
 
 function setupBatmanInterfaceOnDevice(deviceName) {
@@ -464,8 +467,7 @@ function setupBatmanInterfaceOnDevice(deviceName) {
 		return batmanIfaceName;
 	}
 
-	const batmanIFace = uci.add('network', 'interface');
-	uci.set('network', batmanIFace, 'name', batmanIfaceName);
+	const batmanIFace = uci.add('network', 'interface', batmanIfaceName);
 	uci.set('network', batmanIFace, 'proto', 'batadv_hardif');
 	uci.set('network', batmanIFace, 'master', deviceName);
 
