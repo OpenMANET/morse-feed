@@ -606,4 +606,5 @@ return baseclass.extend({
 	getNetworkInterfaces,
 	setupBatmanDeviceOnNetwork,
 	setupBatmanInterfaceOnDevice,
+	getBatmanIfaceForNetwork
 });
