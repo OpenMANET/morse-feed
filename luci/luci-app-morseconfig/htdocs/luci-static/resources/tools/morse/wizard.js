@@ -1171,6 +1171,44 @@ const AbstractWizardView = view.extend({
 	async save() {
 		// Parse/uci.set our fake wizard section...
 		this.parseWizardOptions();
+
+		// Configure B.A.T.M.A.N. advanced
+		const {
+			morseInterfaceName
+		} = readSectionInfo();
+		let batmanDeviceName;
+
+		let isMeshGate = uci.get('mesh11sd', 'mesh_params', 'mesh_gate_announcements') === '1';
+		if (isMeshGate) {
+			// Setup batman device & interface
+			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
+			// so that scripts and firewall rules etc. can rely on these names.
+			// Batman will be configured as server (i.e. gateway mode) because we're a mesh gate.
+			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'server');
+			// We have to call save here so that the device is present
+			// when we call setupBatmanInterfaceOnDevice.
+			await uci.save();
+		} else {
+			// Setup batman device & interface
+			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
+			// so that scripts and firewall rules etc. can rely on these names.
+			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'client');
+			// We have to call save here so that the device is present
+			// when we call setupBatmanInterfaceOnDevice.
+			await uci.save();
+		}
+
+		const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
+		// Add batman interface to ahwlan bridge if present
+		const devices = morseuci.getNetworkDevices('br-ahwlan');
+		if (devices.length) {
+			uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
+		}
+		// change wifi-iface ahwlan to use batman interface default_radio0
+		uci.set('wireless', morseInterfaceName, 'network', batmanIface);
+		// Disable mesh11sd to use batman-adv instead
+		uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
+
 		// And now we can remove it.
 		uci.remove('network', 'wizard', 'wizard');
 

@@ -462,16 +462,16 @@ function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client', deviceN
 function setupBatmanInterfaceOnDevice(deviceName) {
 	const batmanIfaceName = 'batmesh0';
 	// See if there's already a batman interface on this device
-	const batmanDevice= uci.sections('network', 'interface').find(s => s.proto === 'batadv' && s.batdev === deviceName);
-	if (batmanDevice) {
-		return batmanIfaceName;
+	const batmanInterface = uci.sections('network', 'interface').find(s => s.proto === 'batadv_hardif' && s.master=== deviceName);
+	if (batmanInterface) {
+		return uci.get('network', batmanIfaceName, 'name');
 	}
 
-	const batmanIFace = uci.add('network', 'interface', batmanIfaceName);
-	uci.set('network', batmanIFace, 'proto', 'batadv_hardif');
-	uci.set('network', batmanIFace, 'master', deviceName);
+	uci.add('network', 'interface', batmanIfaceName);
+	uci.set('network', batmanIfaceName, 'proto', 'batadv_hardif');
+	uci.set('network', batmanIfaceName, 'master', deviceName);
 
-	return uci.get('network', batmanIFace, 'name');
+	return uci.get('network', batmanIfaceName, 'name');
 }
 
 function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
