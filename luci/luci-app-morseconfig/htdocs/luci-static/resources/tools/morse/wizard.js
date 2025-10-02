@@ -1199,6 +1199,9 @@ const AbstractWizardView = view.extend({
 		}
 
 		const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
+
+		await uci.save();
+
 		// Add batman interface to ahwlan bridge if present
 		uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
 		// change wifi-iface ahwlan to use batman interface default_radio0
