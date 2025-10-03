@@ -1173,11 +1173,7 @@ const AbstractWizardView = view.extend({
 		this.parseWizardOptions();
 
 		// Configure B.A.T.M.A.N. advanced
-		const {
-			morseInterfaceName
-		} = readSectionInfo();
 		let batmanDeviceName;
-
 		let isMeshGate = uci.get('mesh11sd', 'mesh_params', 'mesh_gate_announcements') === '1';
 		if (isMeshGate) {
 			// Setup batman device & interface
@@ -1198,16 +1194,10 @@ const AbstractWizardView = view.extend({
 			await uci.save();
 		}
 
-		const batmanIface = morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
-
-		await uci.save();
-
-		// Add batman interface to ahwlan bridge if present
-		uci.set('network', 'br-ahwlan', 'ports', batmanDeviceName);
-		// change wifi-iface ahwlan to use batman interface default_radio0
-		uci.set('wireless', morseInterfaceName, 'network', batmanIface);
-		// Disable mesh11sd to use batman-adv instead
-		uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
+		// Setup the batman interface on the batman device.
+		// Attach it to the ahwlan device.
+		// Attach the halow mesh interface to the batman device.
+		morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
 
 		// And now we can remove it.
 		uci.remove('network', 'wizard', 'wizard');
