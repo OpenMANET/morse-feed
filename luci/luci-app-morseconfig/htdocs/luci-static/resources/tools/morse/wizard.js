@@ -328,9 +328,9 @@ function setupNetworkIface(sectionId, { local, primaryLocal } = {}) {
 			uci.set_first('umdns', 'umdns', 'network', umdnsNetworkList);
 		}
 	} else {
-		uci.set('firewall', zoneSection['.name'], 'input', 'REJECT');
+		uci.set('firewall', zoneSection['.name'], 'input', 'ACCEPT');
 		uci.set('firewall', zoneSection['.name'], 'output', 'ACCEPT');
-		uci.set('firewall', zoneSection['.name'], 'forward', 'REJECT');
+		uci.set('firewall', zoneSection['.name'], 'forward', 'ACCEPT');
 
 		setDefaultWanFirewallRules(zoneSection.name);
 
