@@ -469,6 +469,11 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	// Set a DNS server on the LAN interface so that clients can resolve names across the batman mesh
 	uci.set('network', 'lan', 'dns', '1.1.1.1');
 
+	// Allow forwarding from ahwlan to lan
+	const forwardingId = uci.add('firewall', 'forwarding');
+	uci.set('firewall', forwardingId, 'src', 'ahwlan');
+	uci.set('firewall', forwardingId, 'dest', 'lan');
+
 	return uci.get('network', batmanIfaceName, 'name');
 }
 
