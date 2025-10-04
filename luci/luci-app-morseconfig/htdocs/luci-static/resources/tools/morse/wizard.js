@@ -1197,7 +1197,7 @@ const AbstractWizardView = view.extend({
 		// Setup the batman interface on the batman device.
 		// Attach it to the ahwlan device.
 		// Attach the halow mesh interface to the batman device.
-		morseuci.setupBatmanInterfaceOnDevice(batmanDeviceName);
+		morseuci.setupBatmanInterfaceOnDevice();
 
 		// And now we can remove it.
 		uci.remove('network', 'wizard', 'wizard');

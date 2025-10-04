@@ -459,7 +459,7 @@ function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client', deviceN
 	return uci.get('network', deviceName, 'name');
 }
 
-function setupBatmanInterfaceOnDevice(deviceName) {
+function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	const morseDevice = uci.sections('wireless', 'wifi-device').find(s => s.type === 'morse');
 	const morseDeviceName = morseDevice?.['.name'];
 	const morseInterfaceName = `default_${morseDeviceName}`;
@@ -474,8 +474,14 @@ function setupBatmanInterfaceOnDevice(deviceName) {
 	uci.set('network', batmanIfaceName, 'proto', 'batadv_hardif');
 	uci.set('network', batmanIfaceName, 'master', deviceName);
 
+	// get dynamic bridge id
+	const bridgeId = uci.resolveSID('network', '@device[1]');
+	if (!bridgeId) {
+		throw new Error('No bridge device found to attach batman interface to');
+	}
+
 	// Add batman interface to ahwlan bridge if present
-	uci.set('network', '@device[1]', 'ports', deviceName);
+	uci.set('network', bridgeId, 'ports', deviceName);
 	// change wifi-iface ahwlan to use batman interface default_radio0
 	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName);
 	// Disable mesh11sd to use batman-adv instead
