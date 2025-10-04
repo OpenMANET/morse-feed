@@ -448,7 +448,7 @@ function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client', deviceN
 		uci.set('network', deviceName, 'proto', 'batadv');
 		uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
 		uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
-		uci.set('network', deviceName, 'disabled', '0')
+		//uci.set('network', deviceName, 'disabled', '0')
 		uci.set('network', deviceName, 'hop_penalty', '30');
 	}
 
@@ -475,7 +475,7 @@ function setupBatmanInterfaceOnDevice(deviceName) {
 	uci.set('network', batmanIfaceName, 'master', deviceName);
 
 	// Add batman interface to ahwlan bridge if present
-	uci.set('network', 'br-ahwlan', 'ports', deviceName);
+	setNetworkDevices('br-ahwlan', deviceName);
 	// change wifi-iface ahwlan to use batman interface default_radio0
 	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName);
 	// Disable mesh11sd to use batman-adv instead
