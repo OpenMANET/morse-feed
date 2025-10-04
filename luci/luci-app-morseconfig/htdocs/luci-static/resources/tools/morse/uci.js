@@ -448,15 +448,11 @@ function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client', deviceN
 		uci.set('network', deviceName, 'proto', 'batadv');
 		uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
 		uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
-		//uci.set('network', deviceName, 'disabled', '0')
 		uci.set('network', deviceName, 'hop_penalty', '30');
-	}
-
-	if (gwMode) {
 		uci.set('network', deviceName, 'gw_mode', gwMode);
 	}
 
-	return uci.get('network', deviceName, 'name');
+	return deviceName;
 }
 
 function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
@@ -470,11 +466,13 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 		return uci.get('network', batmanIfaceName, 'name');
 	}
 
+	// Create the batman interface on the batman device
 	uci.add('network', 'interface', batmanIfaceName);
 	uci.set('network', batmanIfaceName, 'proto', 'batadv_hardif');
 	uci.set('network', batmanIfaceName, 'master', deviceName);
 
 	// get dynamic bridge id
+	// @device[1] is ahwlan
 	const bridgeId = uci.resolveSID('network', '@device[1]');
 	if (!bridgeId) {
 		throw new Error('No bridge device found to attach batman interface to');
