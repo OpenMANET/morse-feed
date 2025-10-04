@@ -606,6 +606,5 @@ return baseclass.extend({
 	getEthernetStaticIp,
 	getNetworkInterfaces,
 	setupBatmanDeviceOnNetwork,
-	setupBatmanInterfaceOnDevice,
-	getBatmanIfaceForNetwork
+	setupBatmanInterfaceOnDevice
 });
