@@ -494,8 +494,13 @@ function resetUciNetworkTopology() {
 		}
 
 		// Remove any ad-hoc things.
+		// Remove batman device and interfaces
 		if (iface['proto'] == 'batadv') {
-			uci.set('network', iface['.name'], 'disabled', '1');
+			uci.remove('network', iface['.name']);
+		}
+
+		if (iface['proto'] == 'batadv_hardif') {
+			uci.remove('network', iface['.name']);
 		}
 
 		uci.unset('network', iface['.name'], 'gateway');
@@ -1180,7 +1185,7 @@ const AbstractWizardView = view.extend({
 			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
 			// so that scripts and firewall rules etc. can rely on these names.
 			// Batman will be configured as server (i.e. gateway mode) because we're a mesh gate.
-			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'server');
+			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('server');
 			// We have to call save here so that the device is present
 			// when we call setupBatmanInterfaceOnDevice.
 			await uci.save();
@@ -1188,7 +1193,7 @@ const AbstractWizardView = view.extend({
 			// Setup batman device & interface
 			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
 			// so that scripts and firewall rules etc. can rely on these names.
-			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('ahwlan', 'client');
+			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('client');
 			// We have to call save here so that the device is present
 			// when we call setupBatmanInterfaceOnDevice.
 			await uci.save();

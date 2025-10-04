@@ -418,39 +418,18 @@ function getNetworkInterfaces() {
 		.map(s => s['.name']);
 }
 
-// Return the batman interface for a network, or null if none exists.
-// Note that this does NOT create a batman interface if one doesn't exist.
-// USE setupBatmanOnNetwork TO CREATE IF NECESSARY
-function getBatmanIfaceForNetwork(networkSectionId) {
-	const ifaces = getNetworkInterfaces();
-	if (!ifaces.includes(networkSectionId)) {
-		return null;
-	}
-	for (const iface of ifaces) {
-		const devSection = uci.sections('network', 'interface').find(s => s.name === iface);
-		if (devSection && devSection.proto === 'batadv') {
-			return iface;
-		}
-	}
-
-	return null;
-}
-
-function setupBatmanDeviceOnNetwork(networkSectionId, gwMode = 'client', deviceName = 'bat0') {
-	const batmanIface = getBatmanIfaceForNetwork(networkSectionId);
-	if (batmanIface) {
-		return batmanIface;
-	}
+function setupBatmanDeviceOnNetwork(gwMode = 'client', deviceName = 'bat0') {
 	// See if there's already a batman device on this network
 	if (!uci.get('network', deviceName)) {
 		uci.add('network', 'interface', deviceName);
-
-		uci.set('network', deviceName, 'proto', 'batadv');
-		uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
-		uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
-		uci.set('network', deviceName, 'hop_penalty', '30');
-		uci.set('network', deviceName, 'gw_mode', gwMode);
 	}
+
+	uci.set('network', deviceName, 'proto', 'batadv');
+	uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
+	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
+	uci.set('network', deviceName, 'hop_penalty', '30');
+	uci.set('network', deviceName, 'gw_mode', gwMode);
+
 
 	return deviceName;
 }
@@ -460,6 +439,7 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	const morseDeviceName = morseDevice?.['.name'];
 	const morseInterfaceName = `default_${morseDeviceName}`;
 	const batmanIfaceName = 'batmesh0';
+
 	// See if there's already a batman interface on this device
 	const batmanInterface = uci.sections('network', 'interface').find(s => s.proto === 'batadv_hardif' && s.master=== deviceName);
 	if (batmanInterface) {
@@ -471,15 +451,17 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	uci.set('network', batmanIfaceName, 'proto', 'batadv_hardif');
 	uci.set('network', batmanIfaceName, 'master', deviceName);
 
-	// get dynamic bridge id
-	// @device[1] is ahwlan
-	const bridgeId = uci.resolveSID('network', '@device[1]');
-	if (!bridgeId) {
-		throw new Error('No bridge device found to attach batman interface to');
+
+	// Loop through devices using uci.sections('network', 'device') and find the one with the name br-ahwlan
+	// Then set the bat0 device as a port on that bridge
+	for (const device of uci.sections('network', 'device')) {
+		if (device.type === 'bridge' && device.name == 'br-ahwlan') {
+			// Add batman interface to ahwlan bridge if present
+			uci.set('network', device['.name'], 'ports', deviceName);
+			break;
+		}
 	}
 
-	// Add batman interface to ahwlan bridge if present
-	uci.set('network', bridgeId, 'ports', deviceName);
 	// change wifi-iface ahwlan to use batman interface default_radio0
 	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName);
 	// Disable mesh11sd to use batman-adv instead
