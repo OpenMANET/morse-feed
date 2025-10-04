@@ -475,7 +475,7 @@ function setupBatmanInterfaceOnDevice(deviceName) {
 	uci.set('network', batmanIfaceName, 'master', deviceName);
 
 	// Add batman interface to ahwlan bridge if present
-	setNetworkDevices('br-ahwlan', deviceName);
+	uci.set('network', '@device[1]', 'ports', deviceName);
 	// change wifi-iface ahwlan to use batman interface default_radio0
 	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName);
 	// Disable mesh11sd to use batman-adv instead
