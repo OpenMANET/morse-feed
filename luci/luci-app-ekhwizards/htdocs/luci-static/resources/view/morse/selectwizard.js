@@ -11,9 +11,9 @@ return view.extend({
 		const closeButton = document.querySelector('body header button.close');
 		closeButton.onclick = () => this.abort();
 		return await Promise.all([
-			uci.load('prplmesh').then(() => true).catch(() => false),
+			//uci.load('prplmesh').then(() => true).catch(() => false),
 			uci.load('mesh11sd').then(() => true).catch(() => false),
-			uci.load('matter').then(() => true).catch(() => false),
+			//uci.load('matter').then(() => true).catch(() => false),
 			uci.load('luci'),
 		]);
 	},
@@ -51,7 +51,7 @@ return view.extend({
 				L.resourceCacheBusted('view/morse/images/meshwizard.svg'),
 			));
 		}
-		if (hasPrplmesh) {
+/* 		if (hasPrplmesh) {
 			cards.push(
 				this.card(
 					L.url('admin', 'morse', 'easymeshwizard'),
@@ -68,7 +68,7 @@ return view.extend({
 					_('Setup your device as part of Matter. (Matter not certified for this product)'),
 					L.resourceCacheBusted('view/morse/images/matterwizard.svg'),
 				));
-		}
+		} */
 		return E('div', { class: 'wizard-contents' }, [
 			E('h2', 'Select a Wizard'),
 			E('div', { class: 'cards' }, cards),

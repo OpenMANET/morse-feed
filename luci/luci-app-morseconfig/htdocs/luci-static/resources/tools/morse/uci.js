@@ -396,6 +396,7 @@ function getNetworkDevices(sectionId) {
 	return res ? L.toArray(res) : [];
 }
 
+// Set the devices for a network section, creating a bridge if necessary.
 function setNetworkDevices(sectionId, devices) {
 	const device = uci.get('network', sectionId, 'device');
 	const deviceSection = uci.sections('network', 'device')
@@ -408,6 +409,72 @@ function setNetworkDevices(sectionId, devices) {
 	} else if (devices.length > 1) {
 		setBridgeWithPorts(sectionId, devices);
 	}
+}
+
+// Get all network interfaces (names of sections in uci network).
+function getNetworkInterfaces() {
+	return uci.sections('network', 'interface')
+		.filter(s => s && s['.name'])
+		.map(s => s['.name']);
+}
+
+function setupBatmanDeviceOnNetwork(gwMode = 'client', deviceName = 'bat0') {
+	// See if there's already a batman device on this network
+	if (!uci.get('network', deviceName)) {
+		uci.add('network', 'interface', deviceName);
+	}
+
+	uci.set('network', deviceName, 'proto', 'batadv');
+	uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
+	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
+	uci.set('network', deviceName, 'hop_penalty', '30');
+	uci.set('network', deviceName, 'gw_mode', gwMode);
+
+
+	return deviceName;
+}
+
+function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
+	const morseDevice = uci.sections('wireless', 'wifi-device').find(s => s.type === 'morse');
+	const morseDeviceName = morseDevice?.['.name'];
+	const morseInterfaceName = `default_${morseDeviceName}`;
+	const batmanIfaceName = 'batmesh0';
+
+	// See if there's already a batman interface on this device
+	const batmanInterface = uci.sections('network', 'interface').find(s => s.proto === 'batadv_hardif' && s.master=== deviceName);
+	if (batmanInterface) {
+		return uci.get('network', batmanIfaceName, 'name');
+	}
+
+	// Create the batman interface on the batman device
+	uci.add('network', 'interface', batmanIfaceName);
+	uci.set('network', batmanIfaceName, 'proto', 'batadv_hardif');
+	uci.set('network', batmanIfaceName, 'master', deviceName);
+
+
+	// Loop through devices using uci.sections('network', 'device') and find the one with the name br-ahwlan
+	// Then set the bat0 device as a port on that bridge
+	for (const device of uci.sections('network', 'device')) {
+		if (device.type === 'bridge' && device.name == 'br-ahwlan') {
+			// Add batman interface to ahwlan bridge if present
+			uci.set('network', device['.name'], 'ports', deviceName);
+			break;
+		}
+	}
+
+	// change wifi-iface ahwlan to use batman interface default_radio0
+	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName);
+	// Disable mesh11sd to use batman-adv instead
+	uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
+	// Set a DNS server on the LAN interface so that clients can resolve names across the batman mesh
+	uci.set('network', 'lan', 'dns', '1.1.1.1');
+
+	// Allow forwarding from ahwlan to lan
+	const forwardingId = uci.add('firewall', 'forwarding');
+	uci.set('firewall', forwardingId, 'src', 'ahwlan');
+	uci.set('firewall', forwardingId, 'dest', 'lan');
+
+	return uci.get('network', batmanIfaceName, 'name');
 }
 
 function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
@@ -542,4 +609,7 @@ return baseclass.extend({
 	getFirstNetmask,
 	getEthernetPorts,
 	getEthernetStaticIp,
+	getNetworkInterfaces,
+	setupBatmanDeviceOnNetwork,
+	setupBatmanInterfaceOnDevice
 });

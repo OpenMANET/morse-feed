@@ -573,6 +573,9 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
     background-repeat: no-repeat;
     background-position: center;
     background-size: cover;
+    background-origin: content-box;
+    background-color: rgb(14, 14, 14);
+    padding-left: 420px;
     transition: all 0.5s;
   }
 

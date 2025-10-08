@@ -446,12 +446,19 @@ return wizard.AbstractWizardView.extend({
 		// This echoes the usual AP/STA terminology.
 		page = this.page(networkSection,
 			_('Traffic Mode'),
-			_(`We recommend configuring this device as a <b>Bridge</b>.
-				This allows non-HaLow devices to obtain IPs over your HaLow link.
+			_(`We recommend configuring this device as a <b>Extender</b>.
 
 				<p>To create a separate network for the HaLow and the non-HaLow devices select <b>Extender</b>.
 				In which case, this device will run a DHCP server on the non-HaLow interfaces, and
 				it will use NAT to forward IP traffic between HaLow and non-HaLow networks.
+
+				Devices connected via ethernet or Wi-Fi will be able to access the HaLow network,
+				without any special configuration on the connecting device.
+
+				<p>In <b>Bridge</b> mode, the non-HaLow devices obtain IP addresses from your HaLow link.
+				They will only get addresses if there is a DHCP server on the HaLow network.  This is a HaLow
+				mesh gate device, so if there is an upstream network connected to the mesh gate, the
+				non-HaLow devices will be able to access that network.
 
 				<p>Choose <b>None</b> to keep the HaLow and non-HaLow networks isolated,
 				this is the mode the device uses after factory reset.`));
@@ -479,8 +486,8 @@ return wizard.AbstractWizardView.extend({
 		option.widget = 'radio';
 		option.orientation = 'vertical';
 		option.value('none', _('None'));
-		option.value('bridge', _('Bridge'));
 		option.value('extender', _('Extender'));
+		option.value('bridge', _('Bridge'));
 		option.onchange = function (ev, sectionId, value) {
 			if (value == 'bridge') {
 				this.page.updateInfoText(bridgeInfoSta, thisWizardView);
@@ -767,7 +774,7 @@ return wizard.AbstractWizardView.extend({
 		option.depends('network.wizard.uplink', 'none');
 
 		option = page.step(_(`For advanced 802.11s mesh settings, you can navigate to Network->Wireless page once you exit the wizard`));
-		option = page.step(_(`You can enable B.A.T.M.A.N for 802.11s mesh from the advanced 802.11s mesh settings`));
+		option = page.step(_(`B.A.T.M.A.N for 802.11s mesh is setup automatically`));
 
 		/*****************************************************************************/
 

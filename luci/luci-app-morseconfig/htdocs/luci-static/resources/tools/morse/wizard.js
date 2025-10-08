@@ -328,9 +328,9 @@ function setupNetworkIface(sectionId, { local, primaryLocal } = {}) {
 			uci.set_first('umdns', 'umdns', 'network', umdnsNetworkList);
 		}
 	} else {
-		uci.set('firewall', zoneSection['.name'], 'input', 'REJECT');
+		uci.set('firewall', zoneSection['.name'], 'input', 'ACCEPT');
 		uci.set('firewall', zoneSection['.name'], 'output', 'ACCEPT');
-		uci.set('firewall', zoneSection['.name'], 'forward', 'REJECT');
+		uci.set('firewall', zoneSection['.name'], 'forward', 'ACCEPT');
 
 		setDefaultWanFirewallRules(zoneSection.name);
 
@@ -494,8 +494,13 @@ function resetUciNetworkTopology() {
 		}
 
 		// Remove any ad-hoc things.
+		// Remove batman device and interfaces
 		if (iface['proto'] == 'batadv') {
-			uci.set('network', iface['.name'], 'disabled', '1');
+			uci.remove('network', iface['.name']);
+		}
+
+		if (iface['proto'] == 'batadv_hardif') {
+			uci.remove('network', iface['.name']);
 		}
 
 		uci.unset('network', iface['.name'], 'gateway');
@@ -1171,6 +1176,34 @@ const AbstractWizardView = view.extend({
 	async save() {
 		// Parse/uci.set our fake wizard section...
 		this.parseWizardOptions();
+
+		// Configure B.A.T.M.A.N. advanced
+		let batmanDeviceName;
+		let isMeshGate = uci.get('mesh11sd', 'mesh_params', 'mesh_gate_announcements') === '1';
+		if (isMeshGate) {
+			// Setup batman device & interface
+			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
+			// so that scripts and firewall rules etc. can rely on these names.
+			// Batman will be configured as server (i.e. gateway mode) because we're a mesh gate.
+			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('server');
+			// We have to call save here so that the device is present
+			// when we call setupBatmanInterfaceOnDevice.
+			await uci.save();
+		} else {
+			// Setup batman device & interface
+			// Note that we always call the batman device 'bat0' and the interface 'batmesh0'
+			// so that scripts and firewall rules etc. can rely on these names.
+			batmanDeviceName = morseuci.setupBatmanDeviceOnNetwork('client');
+			// We have to call save here so that the device is present
+			// when we call setupBatmanInterfaceOnDevice.
+			await uci.save();
+		}
+
+		// Setup the batman interface on the batman device.
+		// Attach it to the ahwlan device.
+		// Attach the halow mesh interface to the batman device.
+		morseuci.setupBatmanInterfaceOnDevice();
+
 		// And now we can remove it.
 		uci.remove('network', 'wizard', 'wizard');
 
