@@ -124,9 +124,20 @@ function createDhcp(dnsmasqName, networkSectionId) {
 		proposedName = `${networkSectionId}${++i}`;
 	}
 
+	// The default netmask is now 255.255.0.0
+	// (see setupNetworkWithDnsmasq)
+	// The Start option specifies the offset from the network address of the underlying interface
+	// to calculate the minimum address that may be leased to clients. It may be greater than 255 to span subnets.
+	// The Limit option specifies the maximum number of addresses that may be leased to clients.
+	// We want to pick a random number between 255 and 500 so the start address will be in the 4th octet.
+	// We will also only use a range of /28 (16 addresses) to reduce the chance of clashes.
+	// This means that the start address will be between x.x.0.255 and x.x.1.244
+	// (i.e. 255 + (16 * 15)).
+	const randomStart = 255 + (16 * Math.floor(Math.random() * 15));
+
 	uci.add('dhcp', 'dhcp', proposedName);
-	uci.set('dhcp', proposedName, 'start', '100');
-	uci.set('dhcp', proposedName, 'limit', '150');
+	uci.set('dhcp', proposedName, 'start', randomStart.toString());
+	uci.set('dhcp', proposedName, 'limit', '16');
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
 	uci.set('dhcp', proposedName, 'interface', networkSectionId);
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
@@ -458,6 +469,7 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 		if (device.type === 'bridge' && device.name == 'br-ahwlan') {
 			// Add batman interface to ahwlan bridge if present
 			uci.set('network', device['.name'], 'ports', deviceName);
+			// TODO: Add eth0 and 2.4GHz wifi ifaces as well
 			break;
 		}
 	}
@@ -480,9 +492,23 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
 	const dnsmasq = getOrCreateDnsmasq(sectionId);
 	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
+
+	// Get a random octet for the IP address range
+	// (to avoid clashes if multiple morse devices are connected to the same uplink).
+	// We use a fixed netmask of 255.255.0.0
+	// Split the ip into its components
+	const ipParts = ip.split('.');
+	if (ipParts.length !== 4 || ipParts.some(part => isNaN(part) || part < 0 || part > 255)) {
+		throw new Error(`Invalid IP address: ${ip}`);
+	}
+
+	// We should need to pick a random number for the 3rd octet only.
+	const randomOctet = Math.floor(Math.random() * 256);
+	const newIp = `${ipParts[0]}.${ipParts[1]}.${randomOctet}.1`;
+
 	uci.set('network', sectionId, 'proto', 'static');
-	uci.set('network', sectionId, 'ipaddr', ip);
-	uci.set('network', sectionId, 'netmask', '255.255.255.0');
+	uci.set('network', sectionId, 'ipaddr', newIp);
+	uci.set('network', sectionId, 'netmask', '255.255.0.0');
 
 	if (!uplink) {
 		uci.set('dhcp', dhcp, 'dhcp_option', ['3', '6']);
