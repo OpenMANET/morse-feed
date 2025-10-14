@@ -140,6 +140,7 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.set('dhcp', proposedName, 'limit', '16');
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
 	uci.set('dhcp', proposedName, 'interface', networkSectionId);
+	uci.set('dhcp', proposedName, 'force', '1');
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
 		uci.set('dhcp', proposedName, 'instance', dnsmasqName);
 	}
