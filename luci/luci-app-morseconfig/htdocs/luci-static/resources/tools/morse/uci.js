@@ -490,10 +490,7 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	return uci.get('network', batmanIfaceName, 'name');
 }
 
-function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
-	const dnsmasq = getOrCreateDnsmasq(sectionId);
-	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
-
+function getRandomIpaddr(ip) {
 	// Get a random octet for the IP address range
 	// (to avoid clashes if multiple morse devices are connected to the same uplink).
 	// We use a fixed netmask of 255.255.0.0
@@ -504,11 +501,18 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
 	}
 
 	// We should need to pick a random number for the 3rd octet only.
-	const randomOctet = Math.floor(Math.random() * 256);
+	const randomOctet = Math.floor(Math.random() * 254);
 	const newIp = `${ipParts[0]}.${ipParts[1]}.${randomOctet}.1`;
 
+	return newIp;
+}
+
+function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
+	const dnsmasq = getOrCreateDnsmasq(sectionId);
+	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
+
 	uci.set('network', sectionId, 'proto', 'static');
-	uci.set('network', sectionId, 'ipaddr', newIp);
+	uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
 	uci.set('network', sectionId, 'netmask', '255.255.0.0');
 
 	if (!uplink) {
@@ -620,6 +624,7 @@ return baseclass.extend({
 	createDhcp,
 	getOrCreateDnsmasq,
 	getOrCreateDhcp,
+	getRandomIpaddr,
 	createOrRemoveBridgeAsNeeded,
 	validateBridge,
 	forceBridge,

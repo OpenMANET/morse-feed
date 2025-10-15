@@ -262,7 +262,8 @@ return wizard.AbstractWizardView.extend({
 			if (device_mode_meshpoint === 'extender') { // i.e. router
 				const { ethIface, halowIface } = nonBridgeMode();
 
-				uci.set('network', halowIface, 'proto', 'dhcp');
+				//uci.set('network', halowIface, 'proto', 'dhcp');
+				morseuci.setupNetworkWithDnsmasq(halowIface, wlanIp);
 				morseuci.setupNetworkWithDnsmasq(ethIface, lanIp);
 				morseuci.getOrCreateForwarding(ethIface, halowIface, 'mmextender');
 			} else if (device_mode_meshpoint === 'none') {
