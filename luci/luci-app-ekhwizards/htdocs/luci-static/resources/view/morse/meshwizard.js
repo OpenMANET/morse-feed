@@ -275,7 +275,8 @@ return wizard.AbstractWizardView.extend({
 				uci.set('wireless', morseInterfaceName, 'wds', '1');
 				const iface = bridgeMode();
 
-				uci.set('network', iface, 'proto', 'dhcp');
+				//uci.set('network', iface, 'proto', 'dhcp');
+				morseuci.setupNetworkWithDnsmasq(iface, wlanIp);
 			}
 		}
 	},

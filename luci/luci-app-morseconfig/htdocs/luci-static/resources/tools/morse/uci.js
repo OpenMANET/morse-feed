@@ -440,8 +440,8 @@ function setupBatmanDeviceOnNetwork(gwMode = 'client', deviceName = 'bat0') {
 	uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
 	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
 	uci.set('network', deviceName, 'hop_penalty', '30');
+	uci.set('network', deviceName, 'bonding', '1');
 	uci.set('network', deviceName, 'gw_mode', gwMode);
-
 
 	return deviceName;
 }
