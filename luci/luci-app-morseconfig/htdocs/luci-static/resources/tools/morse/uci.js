@@ -512,6 +512,9 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 	const dnsmasq = getOrCreateDnsmasq(sectionId);
 	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
 
+	uci.set('network', sectionId, 'proto', 'static');
+	uci.set('network', sectionId, 'netmask', '255.255.0.0');
+
 	if (isMeshPoint) {
 		if (sectionId === 'ahwlan') {
 			uci.set('network', sectionId, 'gateway', ip);
@@ -519,12 +522,9 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 
 		uci.set('network', sectionId, 'dns', '1.1.1.1');
 		uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
+	} else {
+		uci.set('network', sectionId, 'ipaddr', ip);
 	}
-
-	uci.set('network', sectionId, 'proto', 'static');
-	uci.set('network', sectionId, 'ipaddr', ip);
-	uci.set('network', sectionId, 'netmask', '255.255.0.0');
-
 
 	if (!uplink) {
 		uci.set('dhcp', dhcp, 'dhcp_option', ['3', '6']);
