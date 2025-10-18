@@ -536,8 +536,18 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 			uci.set('network', sectionId, 'ip6ifaceid', 'eui64');
 
 			// Create an ip6 class array if it doesn't exist
-			let ip6class = uci.get('network', sectionId, 'ip6class') || [];
-			ip6class.push('local');
+			let ip6class = uci.get('network', sectionId, 'ip6class');
+			if (!ip6class) {
+				ip6class = [];
+			} else if (!Array.isArray(ip6class)) {
+				ip6class = [ip6class];
+			}
+
+			// Add 'local' to the ip6 class if it's not already present
+			if (!ip6class.includes('local')) {
+				ip6class.push('local');
+			}
+
 			uci.set('network', sectionId, 'ip6class', ip6class);
 		}
 
@@ -552,6 +562,7 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 	} else {
 		uci.unset('dhcp', dnsmasq, 'notinterface');
 		uci.unset('dhcp', dhcp, 'dhcp_option');
+		uci.unset('dhcp', dhcp, 'ignore');
 	}
 }
 
