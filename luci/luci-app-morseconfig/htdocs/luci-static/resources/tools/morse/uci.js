@@ -142,6 +142,12 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
 	uci.set('dhcp', proposedName, 'interface', networkSectionId);
 	uci.set('dhcp', proposedName, 'force', '1');
+	uci.set('dhcp', proposedName, 'ra', 'hybrid');
+	uci.set('dhcp', proposedName, 'ra_slaac', '1');
+	uci.set('dhcp', proposedName, 'dns_service', '0');
+	uci.set('dhcp', proposedName, 'ignore', '0');
+	uci.set('dhcp', proposedName, 'ra_flags', 'none');
+	// Link this dhcp section to the appropriate dnsmasq instance
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
 		uci.set('dhcp', proposedName, 'instance', dnsmasqName);
 	}
@@ -562,7 +568,6 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 	} else {
 		uci.unset('dhcp', dnsmasq, 'notinterface');
 		uci.unset('dhcp', dhcp, 'dhcp_option');
-		uci.unset('dhcp', dhcp, 'ignore');
 	}
 }
 
