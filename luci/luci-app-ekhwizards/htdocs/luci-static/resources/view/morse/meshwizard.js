@@ -237,7 +237,7 @@ return wizard.AbstractWizardView.extend({
 				morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 				uci.set('network', upstreamNetwork, 'proto', 'dhcp');
-				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp);
+				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp, true, true);
 			} else if (uplink === 'none') {
 				const { ethIface, halowIface } = nonBridgeMode();
 
@@ -275,8 +275,8 @@ return wizard.AbstractWizardView.extend({
 				uci.set('wireless', morseInterfaceName, 'wds', '1');
 				const iface = bridgeMode();
 
-				//uci.set('network', iface, 'proto', 'dhcp');
-				morseuci.setupNetworkWithDnsmasq(iface, wlanIp);
+				uci.set('network', iface, 'proto', 'dhcp');
+				//morseuci.setupNetworkWithDnsmasq(iface, wlanIp);
 			}
 		}
 	},

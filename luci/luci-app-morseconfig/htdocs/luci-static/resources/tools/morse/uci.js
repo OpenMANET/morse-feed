@@ -133,7 +133,8 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	// We will also only use a range of /28 (16 addresses) to reduce the chance of clashes.
 	// This means that the start address will be between x.x.0.255 and x.x.1.244
 	// (i.e. 255 + (16 * 15)).
-	const randomStart = 255 + (16 * Math.floor(Math.random() * 15));
+	//const randomStart = 255 + (16 * Math.floor(Math.random() * 15));
+	const randomStart = 257;
 
 	uci.add('dhcp', 'dhcp', proposedName);
 	uci.set('dhcp', proposedName, 'start', randomStart.toString());
@@ -507,13 +508,17 @@ function getRandomIpaddr(ip) {
 	return newIp;
 }
 
-function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
+function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshGate = false) {
 	const dnsmasq = getOrCreateDnsmasq(sectionId);
 	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
 
 	uci.set('network', sectionId, 'proto', 'static');
 	uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
 	uci.set('network', sectionId, 'netmask', '255.255.0.0');
+	if (!isMeshGate) {
+		uci.set('network', sectionId, 'gateway', ip);
+		uci.set('network', sectionId, 'dns', '1.1.1.1');
+	}
 
 	if (!uplink) {
 		uci.set('dhcp', dhcp, 'dhcp_option', ['3', '6']);
