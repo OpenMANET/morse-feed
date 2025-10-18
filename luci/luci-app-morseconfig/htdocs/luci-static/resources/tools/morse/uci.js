@@ -469,9 +469,23 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	// Then set the bat0 device as a port on that bridge
 	for (const device of uci.sections('network', 'device')) {
 		if (device.type === 'bridge' && device.name == 'br-ahwlan') {
-			// Add batman interface to ahwlan bridge if present
-			uci.set('network', device['.name'], 'ports', deviceName);
-			// TODO: Add eth0 and 2.4GHz wifi ifaces as well
+			// device.ports can be either a string, array or null/undefined
+			// If there are existing ports, convert to array
+			// Otherwise we add the batman device as the only port
+			let ports = [];
+			if (device.ports) {
+				if (Array.isArray(device.ports)) {
+					ports = device.ports;
+				} else {
+					ports = [device.ports];
+				}
+			}
+			// Check if batman device is already a port
+			if (!ports.includes(deviceName)) {
+				ports.push(deviceName);
+			}
+
+			uci.set('network', device['.name'], 'ports', ports);
 			break;
 		}
 	}
@@ -518,6 +532,13 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 	if (isMeshPoint) {
 		if (sectionId === 'ahwlan') {
 			uci.set('network', sectionId, 'gateway', ip);
+			uci.set('network', sectionId, 'ip6assign', '64');
+			uci.set('network', sectionId, 'ip6ifaceid', 'eui64');
+
+			// Create an ip6 class array if it doesn't exist
+			let ip6class = uci.get('network', sectionId, 'ip6class') || [];
+			ip6class.push('local');
+			uci.set('network', sectionId, 'ip6class', ip6class);
 		}
 
 		uci.set('network', sectionId, 'dns', '1.1.1.1');
