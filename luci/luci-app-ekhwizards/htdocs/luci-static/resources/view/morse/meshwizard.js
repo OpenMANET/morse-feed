@@ -237,7 +237,7 @@ return wizard.AbstractWizardView.extend({
 				morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 				uci.set('network', upstreamNetwork, 'proto', 'dhcp');
-				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp, true, true);
+				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp, true, false);
 			} else if (uplink === 'none') {
 				const { ethIface, halowIface } = nonBridgeMode();
 
