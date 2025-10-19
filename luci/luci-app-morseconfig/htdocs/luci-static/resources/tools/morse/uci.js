@@ -141,12 +141,12 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.set('dhcp', proposedName, 'limit', '16');
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
 	uci.set('dhcp', proposedName, 'interface', networkSectionId);
-	uci.set('dhcp', proposedName, 'force', '1');
 	uci.set('dhcp', proposedName, 'ra', 'hybrid');
 	uci.set('dhcp', proposedName, 'ra_slaac', '1');
 	uci.set('dhcp', proposedName, 'dns_service', '0');
 	uci.set('dhcp', proposedName, 'ignore', '0');
 	uci.set('dhcp', proposedName, 'ra_flags', 'none');
+	uci.set('dhcp', proposedName, 'force', '1');
 	// Link this dhcp section to the appropriate dnsmasq instance
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
 		uci.set('dhcp', proposedName, 'instance', dnsmasqName);
@@ -537,7 +537,8 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 
 	if (isMeshPoint) {
 		if (sectionId === 'ahwlan') {
-			uci.set('network', sectionId, 'gateway', ip);
+			//uci.set('network', sectionId, 'gateway', ip);
+			uci.set('network', sectionId, 'gateway', '10.41.1.1');
 			uci.set('network', sectionId, 'ip6assign', '64');
 			uci.set('network', sectionId, 'ip6ifaceid', 'eui64');
 
