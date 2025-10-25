@@ -140,14 +140,14 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.set('dhcp', proposedName, 'start', randomStart.toString());
 	uci.set('dhcp', proposedName, 'limit', '16');
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
-	uci.set('dhcp', proposedName, 'interface', networkSectionId);
 	uci.set('dhcp', proposedName, 'ra', 'server');
 	uci.set('dhcp', proposedName, 'ra_slaac', '1');
 	uci.set('dhcp', proposedName, 'dns_service', '0');
 	uci.set('dhcp', proposedName, 'ignore', '0');
-	uci.set('dhcp', proposedName, 'ra_flags', 'none');
 	uci.set('dhcp', proposedName, 'force', '1');
 	uci.set('dhcp', proposedName, 'dns', '2606:4700:4700::1111'); // Cloudflare IPv6 DNS
+	uci.set('dhcp', proposedName, 'ra_flags', 'none');
+	uci.set('dhcp', proposedName, 'interface', networkSectionId);
 	// Link this dhcp section to the appropriate dnsmasq instance
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
 		uci.set('dhcp', proposedName, 'instance', dnsmasqName);
