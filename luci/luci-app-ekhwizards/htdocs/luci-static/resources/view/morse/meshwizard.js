@@ -607,6 +607,7 @@ return wizard.AbstractWizardView.extend({
 			option.uciconfig = 'wireless';
 			option.ucisection = wifiDevice.staInterfaceName;
 			option.ucioption = 'encryption';
+			option.default = 'sae';
 			option.depends('network.wizard.uplink', `wifi-${wifiDevice.staInterfaceName}`);
 			option.value('psk2', _('WPA2-PSK'));
 			option.value('sae', _('WPA3-SAE'));
@@ -636,6 +637,7 @@ return wizard.AbstractWizardView.extend({
 		option.retain = true;
 		option.widget = 'radio';
 		option.orientation = 'vertical';
+		option.default = 'router';
 		option.value('bridge', _('Bridge'));
 		option.value('router', _('Router'));
 		if (this.getEthernetPorts().length > 1) {
