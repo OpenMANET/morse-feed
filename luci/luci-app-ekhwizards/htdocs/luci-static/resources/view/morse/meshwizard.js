@@ -607,7 +607,6 @@ return wizard.AbstractWizardView.extend({
 			option.uciconfig = 'wireless';
 			option.ucisection = wifiDevice.staInterfaceName;
 			option.ucioption = 'encryption';
-			option.default = 'sae';
 			option.depends('network.wizard.uplink', `wifi-${wifiDevice.staInterfaceName}`);
 			option.value('psk2', _('WPA2-PSK'));
 			option.value('sae', _('WPA3-SAE'));

@@ -141,12 +141,13 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.set('dhcp', proposedName, 'limit', '16');
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
 	uci.set('dhcp', proposedName, 'interface', networkSectionId);
-	uci.set('dhcp', proposedName, 'ra', 'hybrid');
+	uci.set('dhcp', proposedName, 'ra', 'server');
 	uci.set('dhcp', proposedName, 'ra_slaac', '1');
 	uci.set('dhcp', proposedName, 'dns_service', '0');
 	uci.set('dhcp', proposedName, 'ignore', '0');
 	uci.set('dhcp', proposedName, 'ra_flags', 'none');
 	uci.set('dhcp', proposedName, 'force', '1');
+	uci.set('dhcp', proposedName, 'dns', '2606:4700:4700::1111'); // Cloudflare IPv6 DNS
 	// Link this dhcp section to the appropriate dnsmasq instance
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
 		uci.set('dhcp', proposedName, 'instance', dnsmasqName);
@@ -547,9 +548,10 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 
 	if (isMeshPoint) {
 		if (sectionId === 'ahwlan') {
-			//uci.set('network', sectionId, 'gateway', ip);
 			uci.set('network', sectionId, 'gateway', '10.41.1.1');
-			uci.set('network', sectionId, 'ip6assign', '64');
+			uci.set('network', sectionId, 'ip6assign', '64'); // Assign a /64 IPv6 subnet
+			// Use EUI-64 for IPv6 address generation
+			// This is required for batman-adv tool, alfred to work correctly over IPv6
 			uci.set('network', sectionId, 'ip6ifaceid', 'eui64');
 
 			// Create an ip6 class array if it doesn't exist
