@@ -291,6 +291,13 @@ function setDefaultWanFirewallRules(zone) {
 	uci.set('firewall', sid, 'dest_port', '500');
 	uci.set('firewall', sid, 'proto', 'udp');
 	uci.set('firewall', sid, 'target', 'ACCEPT');
+	sid = uci.add('firewall', 'rule');
+	uci.set('firewall', sid, 'name', 'Allow Batman Mesh TCP 4242');
+	uci.set('firewall', sid, 'src', '*');
+	uci.set('firewall', sid, 'dest', '*');
+	uci.set('firewall', sid, 'dest_port', '4242');
+	uci.set('firewall', sid, 'proto', 'tcp');
+	uci.set('firewall', sid, 'target', 'ACCEPT');
 }
 
 /* Modify/add a network iface with the appropriate firewall zones/rules.

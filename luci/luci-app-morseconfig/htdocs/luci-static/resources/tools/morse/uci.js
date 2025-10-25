@@ -133,8 +133,8 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	// We will also only use a range of /28 (16 addresses) to reduce the chance of clashes.
 	// This means that the start address will be between x.x.0.255 and x.x.1.244
 	// (i.e. 255 + (16 * 15)).
-	//const randomStart = 255 + (16 * Math.floor(Math.random() * 15));
-	const randomStart = 257;
+	const randomStart = 255 + (16 * Math.floor(Math.random() * 15));
+	//const randomStart = 257;
 
 	uci.add('dhcp', 'dhcp', proposedName);
 	uci.set('dhcp', proposedName, 'start', randomStart.toString());
@@ -444,10 +444,20 @@ function setupBatmanDeviceOnNetwork(gwMode = 'client', deviceName = 'bat0') {
 	}
 
 	uci.set('network', deviceName, 'proto', 'batadv');
-	uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
+	uci.set('network', deviceName, 'routing_algo', 'BATMAN_V');
 	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
 	uci.set('network', deviceName, 'hop_penalty', '30');
 	uci.set('network', deviceName, 'bonding', '1');
+	uci.set('network', deviceName, 'aggregated_ogms', '1');
+	uci.set('network', deviceName, 'ap_isolation', '0');
+	uci.set('network', deviceName, 'fragmentation', '1');
+	uci.set('network', deviceName, 'orig_interval', '1000');
+	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
+	uci.set('network', deviceName, 'distributed_arp_table', '1');
+	uci.set('network', deviceName, 'multicast_mode', '1');
+	uci.set('network', deviceName, 'network_coding', '1');
+	uci.set('network', deviceName, 'hop_penalty', '30');
+	uci.set('network', deviceName, 'isolation_mark', '0x00000000/0x00000000');
 	uci.set('network', deviceName, 'gw_mode', gwMode);
 
 	return deviceName;
@@ -561,7 +571,7 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 		uci.set('network', sectionId, 'dns', '1.1.1.1');
 		uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
 	} else {
-		uci.set('network', sectionId, 'ipaddr', ip);
+		uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
 	}
 
 	if (!uplink) {

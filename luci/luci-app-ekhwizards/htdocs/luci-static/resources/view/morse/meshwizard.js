@@ -486,9 +486,11 @@ return wizard.AbstractWizardView.extend({
 		option.retain = true;
 		option.widget = 'radio';
 		option.orientation = 'vertical';
+		option.default = 'bridge';
+		option.readonly = true;
 		option.value('none', _('None'));
-		option.value('extender', _('Extender'));
 		option.value('bridge', _('Bridge'));
+		option.value('extender', _('Extender'));
 		option.onchange = function (ev, sectionId, value) {
 			if (value == 'bridge') {
 				this.page.updateInfoText(bridgeInfoSta, thisWizardView);
