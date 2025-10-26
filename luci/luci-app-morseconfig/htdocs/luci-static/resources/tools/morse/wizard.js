@@ -11,9 +11,9 @@
 'require tools.morse.morseui as morseui';
 'require custom-elements.morse-config-diagram as configDiagram';
 
-const DEFAULT_LAN_IP = '10.42.0.1';
-const DEFAULT_WLAN_IP = '192.168.12.1';
-const ALTERNATE_WLAN_IP = '192.168.13.1';
+const DEFAULT_LAN_IP = '10.40.0.1';
+const DEFAULT_WLAN_IP = '10.41.0.1';
+const ALTERNATE_WLAN_IP = '10.42.0.1';
 
 const callUciCommit = rpc.declare({
 	object: 'uci',
@@ -110,7 +110,7 @@ function readSectionInfo() {
 	}
 
 	// privlan has been removed from all the configs, but for those upgrading we should prefer the IP address
-	// in privlan (i.e. likely 10.42.0.1) to that in lan (likely 192.168.1.1).
+	// in privlan (i.e. likely 10.40.0.1) to that in lan (likely 10.40.0.1).
 	const lanIp = morseuci.getFirstIpaddr('privlan') || morseuci.getFirstIpaddr('lan') || DEFAULT_LAN_IP;
 	let wlanIp;
 	// Likewise, we use the IP in lan here in case we got the previous ip from privlan (it's an old config).
@@ -290,6 +290,13 @@ function setDefaultWanFirewallRules(zone) {
 	uci.set('firewall', sid, 'dest', '*');
 	uci.set('firewall', sid, 'dest_port', '500');
 	uci.set('firewall', sid, 'proto', 'udp');
+	uci.set('firewall', sid, 'target', 'ACCEPT');
+	sid = uci.add('firewall', 'rule');
+	uci.set('firewall', sid, 'name', 'Allow Batman Mesh TCP 4242');
+	uci.set('firewall', sid, 'src', '*');
+	uci.set('firewall', sid, 'dest', '*');
+	uci.set('firewall', sid, 'dest_port', '4242');
+	uci.set('firewall', sid, 'proto', 'tcp');
 	uci.set('firewall', sid, 'target', 'ACCEPT');
 }
 

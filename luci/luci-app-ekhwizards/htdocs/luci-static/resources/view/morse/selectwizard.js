@@ -51,24 +51,6 @@ return view.extend({
 				L.resourceCacheBusted('view/morse/images/meshwizard.svg'),
 			));
 		}
-/* 		if (hasPrplmesh) {
-			cards.push(
-				this.card(
-					L.url('admin', 'morse', 'easymeshwizard'),
-					_('EasyMesh'),
-					_('Setup your device as part of EasyMesh (either as a Mesh Controller or a Mesh Agent).'),
-					L.resourceCacheBusted('view/morse/images/easymeshwizard.svg'),
-				));
-		}
-		if (hasMatter) {
-			cards.push(
-				this.card(
-					L.url('admin', 'morse', 'matterwizard'),
-					_('Matter'),
-					_('Setup your device as part of Matter. (Matter not certified for this product)'),
-					L.resourceCacheBusted('view/morse/images/matterwizard.svg'),
-				));
-		} */
 		return E('div', { class: 'wizard-contents' }, [
 			E('h2', 'Select a Wizard'),
 			E('div', { class: 'cards' }, cards),

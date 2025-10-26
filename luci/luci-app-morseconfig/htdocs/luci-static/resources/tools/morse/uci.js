@@ -124,11 +124,31 @@ function createDhcp(dnsmasqName, networkSectionId) {
 		proposedName = `${networkSectionId}${++i}`;
 	}
 
+	// The default netmask is now 255.255.0.0
+	// (see setupNetworkWithDnsmasq)
+	// The Start option specifies the offset from the network address of the underlying interface
+	// to calculate the minimum address that may be leased to clients. It may be greater than 255 to span subnets.
+	// The Limit option specifies the maximum number of addresses that may be leased to clients.
+	// We want to pick a random number between 255 and 500 so the start address will be in the 4th octet.
+	// We will also only use a range of /28 (16 addresses) to reduce the chance of clashes.
+	// This means that the start address will be between x.x.0.255 and x.x.1.244
+	// (i.e. 255 + (16 * 15)).
+	const randomStart = 255 + (16 * Math.floor(Math.random() * 15));
+	//const randomStart = 257;
+
 	uci.add('dhcp', 'dhcp', proposedName);
-	uci.set('dhcp', proposedName, 'start', '100');
-	uci.set('dhcp', proposedName, 'limit', '150');
+	uci.set('dhcp', proposedName, 'start', randomStart.toString());
+	uci.set('dhcp', proposedName, 'limit', '16');
 	uci.set('dhcp', proposedName, 'leasetime', '12h');
+	uci.set('dhcp', proposedName, 'ra', 'server');
+	uci.set('dhcp', proposedName, 'ra_slaac', '1');
+	uci.set('dhcp', proposedName, 'dns_service', '0');
+	uci.set('dhcp', proposedName, 'ignore', '0');
+	uci.set('dhcp', proposedName, 'force', '1');
+	uci.set('dhcp', proposedName, 'dns', '2606:4700:4700::1111'); // Cloudflare IPv6 DNS
+	uci.set('dhcp', proposedName, 'ra_flags', 'none');
 	uci.set('dhcp', proposedName, 'interface', networkSectionId);
+	// Link this dhcp section to the appropriate dnsmasq instance
 	if (!uci.get('dhcp', dnsmasqName)['.anonymous']) {
 		uci.set('dhcp', proposedName, 'instance', dnsmasqName);
 	}
@@ -425,11 +445,21 @@ function setupBatmanDeviceOnNetwork(gwMode = 'client', deviceName = 'bat0') {
 	}
 
 	uci.set('network', deviceName, 'proto', 'batadv');
-	uci.set('network', deviceName, 'routing_algo', 'BATMAN_IV');
+	uci.set('network', deviceName, 'routing_algo', 'BATMAN_V');
 	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
 	uci.set('network', deviceName, 'hop_penalty', '30');
+	uci.set('network', deviceName, 'bonding', '1');
+	uci.set('network', deviceName, 'aggregated_ogms', '1');
+	uci.set('network', deviceName, 'ap_isolation', '0');
+	uci.set('network', deviceName, 'fragmentation', '1');
+	uci.set('network', deviceName, 'orig_interval', '1000');
+	uci.set('network', deviceName, 'bridge_loop_avoidance', '1');
+	uci.set('network', deviceName, 'distributed_arp_table', '1');
+	uci.set('network', deviceName, 'multicast_mode', '1');
+	uci.set('network', deviceName, 'network_coding', '1');
+	uci.set('network', deviceName, 'hop_penalty', '30');
+	uci.set('network', deviceName, 'isolation_mark', '0x00000000/0x00000000');
 	uci.set('network', deviceName, 'gw_mode', gwMode);
-
 
 	return deviceName;
 }
@@ -456,8 +486,25 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	// Then set the bat0 device as a port on that bridge
 	for (const device of uci.sections('network', 'device')) {
 		if (device.type === 'bridge' && device.name == 'br-ahwlan') {
-			// Add batman interface to ahwlan bridge if present
-			uci.set('network', device['.name'], 'ports', deviceName);
+			// device.ports can be either a string, array or null/undefined
+			// If there are existing ports, convert to array
+			// Otherwise we add the batman device as the only port
+			let ports = [];
+			if (device.ports) {
+				if (Array.isArray(device.ports)) {
+					ports = device.ports;
+				} else {
+					ports = [device.ports];
+				}
+			}
+			// Check if batman device is already a port
+			if (!ports.includes(deviceName)) {
+				ports.push(deviceName);
+			}
+
+			uci.set('network', device['.name'], 'ports', ports);
+			// Enable IGMP snooping on the bridge.  This helps with multicast performance over batman-adv
+			uci.set('network', device['.name'], 'igmp_snooping', '1');
 			break;
 		}
 	}
@@ -477,12 +524,57 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	return uci.get('network', batmanIfaceName, 'name');
 }
 
-function setupNetworkWithDnsmasq(sectionId, ip, uplink = true) {
+function getRandomIpaddr(ip) {
+	// Get a random octet for the IP address range
+	// (to avoid clashes if multiple morse devices are connected to the same uplink).
+	// We use a fixed netmask of 255.255.0.0
+	// Split the ip into its components
+	const ipParts = ip.split('.');
+	if (ipParts.length !== 4 || ipParts.some(part => isNaN(part) || part < 0 || part > 255)) {
+		throw new Error(`Invalid IP address: ${ip}`);
+	}
+
+	// We should need to pick a random number for the 3rd octet only.
+	const randomOctet = Math.floor(Math.random() * 254);
+	const newIp = `${ipParts[0]}.${ipParts[1]}.${randomOctet}.1`;
+
+	return newIp;
+}
+
+function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = true) {
 	const dnsmasq = getOrCreateDnsmasq(sectionId);
 	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
-	uci.set('network', sectionId, 'proto', 'static');
-	uci.set('network', sectionId, 'ipaddr', ip);
-	uci.set('network', sectionId, 'netmask', '255.255.255.0');
+
+	if (sectionId === 'ahwlan') {
+		uci.set('network', sectionId, 'proto', 'static');
+		uci.set('network', sectionId, 'netmask', '255.255.0.0');
+		uci.set('network', sectionId, 'ip6assign', '64'); // Assign a /64 IPv6 subnet
+		// Use EUI-64 for IPv6 address generation
+		// This is required for batman-adv tool, alfred to work correctly over IPv6
+		uci.set('network', sectionId, 'ip6ifaceid', 'eui64');
+
+		// Create an ip6 class array if it doesn't exist
+		let ip6class = uci.get('network', sectionId, 'ip6class');
+		if (!ip6class) {
+			ip6class = [];
+		} else if (!Array.isArray(ip6class)) {
+			ip6class = [ip6class];
+		}
+
+		// Add 'local' to the ip6 class if it's not already present
+		if (!ip6class.includes('local')) {
+			ip6class.push('local');
+		}
+
+		uci.set('network', sectionId, 'ip6class', ip6class);
+		if (isMeshPoint) {
+			uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
+			uci.set('network', sectionId, 'gateway', '10.41.1.1');
+			uci.set('network', sectionId, 'dns', '1.1.1.1');
+		} else {
+			uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
+		}
+	}
 
 	if (!uplink) {
 		uci.set('dhcp', dhcp, 'dhcp_option', ['3', '6']);
@@ -593,6 +685,7 @@ return baseclass.extend({
 	createDhcp,
 	getOrCreateDnsmasq,
 	getOrCreateDhcp,
+	getRandomIpaddr,
 	createOrRemoveBridgeAsNeeded,
 	validateBridge,
 	forceBridge,

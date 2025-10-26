@@ -237,7 +237,7 @@ return wizard.AbstractWizardView.extend({
 				morseuci.createOrRemoveBridgeAsNeeded('ahwlan');
 
 				uci.set('network', upstreamNetwork, 'proto', 'dhcp');
-				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp);
+				morseuci.setupNetworkWithDnsmasq('ahwlan', wlanIp, true, false);
 			} else if (uplink === 'none') {
 				const { ethIface, halowIface } = nonBridgeMode();
 
@@ -262,7 +262,7 @@ return wizard.AbstractWizardView.extend({
 			if (device_mode_meshpoint === 'extender') { // i.e. router
 				const { ethIface, halowIface } = nonBridgeMode();
 
-				uci.set('network', halowIface, 'proto', 'dhcp');
+				morseuci.setupNetworkWithDnsmasq(halowIface, wlanIp);
 				morseuci.setupNetworkWithDnsmasq(ethIface, lanIp);
 				morseuci.getOrCreateForwarding(ethIface, halowIface, 'mmextender');
 			} else if (device_mode_meshpoint === 'none') {
@@ -274,7 +274,7 @@ return wizard.AbstractWizardView.extend({
 				uci.set('wireless', morseInterfaceName, 'wds', '1');
 				const iface = bridgeMode();
 
-				uci.set('network', iface, 'proto', 'dhcp');
+				morseuci.setupNetworkWithDnsmasq(iface, wlanIp);
 			}
 		}
 	},
@@ -446,19 +446,13 @@ return wizard.AbstractWizardView.extend({
 		// This echoes the usual AP/STA terminology.
 		page = this.page(networkSection,
 			_('Traffic Mode'),
-			_(`We recommend configuring this device as a <b>Extender</b>.
+			_(`We recommend configuring this device as a <b>Bridge</b> All other modes are currently disabled.
+				<p>In <b>Bridge</b> mode, the non-HaLow devices obtain IP addresses from your Mesh Point.
+				The address range is within the OpenMANET HaLow network range (10.41.0.0/16).
 
 				<p>To create a separate network for the HaLow and the non-HaLow devices select <b>Extender</b>.
 				In which case, this device will run a DHCP server on the non-HaLow interfaces, and
 				it will use NAT to forward IP traffic between HaLow and non-HaLow networks.
-
-				Devices connected via ethernet or Wi-Fi will be able to access the HaLow network,
-				without any special configuration on the connecting device.
-
-				<p>In <b>Bridge</b> mode, the non-HaLow devices obtain IP addresses from your HaLow link.
-				They will only get addresses if there is a DHCP server on the HaLow network.  This is a HaLow
-				mesh gate device, so if there is an upstream network connected to the mesh gate, the
-				non-HaLow devices will be able to access that network.
 
 				<p>Choose <b>None</b> to keep the HaLow and non-HaLow networks isolated,
 				this is the mode the device uses after factory reset.`));
@@ -485,9 +479,11 @@ return wizard.AbstractWizardView.extend({
 		option.retain = true;
 		option.widget = 'radio';
 		option.orientation = 'vertical';
+		option.default = 'bridge';
+		option.readonly = true;
 		option.value('none', _('None'));
-		option.value('extender', _('Extender'));
 		option.value('bridge', _('Bridge'));
+		option.value('extender', _('Extender'));
 		option.onchange = function (ev, sectionId, value) {
 			if (value == 'bridge') {
 				this.page.updateInfoText(bridgeInfoSta, thisWizardView);
@@ -633,8 +629,9 @@ return wizard.AbstractWizardView.extend({
 		option.retain = true;
 		option.widget = 'radio';
 		option.orientation = 'vertical';
-		option.value('bridge', _('Bridge'));
+		option.default = 'router';
 		option.value('router', _('Router'));
+		option.value('bridge', _('Bridge'));
 		if (this.getEthernetPorts().length > 1) {
 			// Only offer the firewall option if you have multiple ethernet ports
 			// (with a single ethernet port, you're much more likely to get
