@@ -447,19 +447,13 @@ return wizard.AbstractWizardView.extend({
 		// This echoes the usual AP/STA terminology.
 		page = this.page(networkSection,
 			_('Traffic Mode'),
-			_(`We recommend configuring this device as a <b>Extender</b>.
+			_(`We recommend configuring this device as a <b>Bridge</b> All other modes are currently disabled.
+				<p>In <b>Bridge</b> mode, the non-HaLow devices obtain IP addresses from your Mesh Point.
+				The address range is within the OpenMANET HaLow network range (10.41.0.0/16).
 
 				<p>To create a separate network for the HaLow and the non-HaLow devices select <b>Extender</b>.
 				In which case, this device will run a DHCP server on the non-HaLow interfaces, and
 				it will use NAT to forward IP traffic between HaLow and non-HaLow networks.
-
-				Devices connected via ethernet or Wi-Fi will be able to access the HaLow network,
-				without any special configuration on the connecting device.
-
-				<p>In <b>Bridge</b> mode, the non-HaLow devices obtain IP addresses from your HaLow link.
-				They will only get addresses if there is a DHCP server on the HaLow network.  This is a HaLow
-				mesh gate device, so if there is an upstream network connected to the mesh gate, the
-				non-HaLow devices will be able to access that network.
 
 				<p>Choose <b>None</b> to keep the HaLow and non-HaLow networks isolated,
 				this is the mode the device uses after factory reset.`));
