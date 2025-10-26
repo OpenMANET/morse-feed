@@ -637,8 +637,8 @@ return wizard.AbstractWizardView.extend({
 		option.widget = 'radio';
 		option.orientation = 'vertical';
 		option.default = 'router';
-		option.value('bridge', _('Bridge'));
 		option.value('router', _('Router'));
+		option.value('bridge', _('Bridge'));
 		if (this.getEthernetPorts().length > 1) {
 			// Only offer the firewall option if you have multiple ethernet ports
 			// (with a single ethernet port, you're much more likely to get

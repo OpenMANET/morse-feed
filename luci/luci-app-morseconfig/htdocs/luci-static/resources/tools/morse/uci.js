@@ -543,10 +543,38 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 	const dnsmasq = getOrCreateDnsmasq(sectionId);
 	const dhcp = getOrCreateDhcp(dnsmasq, sectionId);
 
-	uci.set('network', sectionId, 'proto', 'static');
-	uci.set('network', sectionId, 'netmask', '255.255.0.0');
+	if (sectionId === 'ahwlan') {
+		uci.set('network', sectionId, 'proto', 'static');
+		uci.set('network', sectionId, 'netmask', '255.255.0.0');
+		uci.set('network', sectionId, 'ip6assign', '64'); // Assign a /64 IPv6 subnet
+		// Use EUI-64 for IPv6 address generation
+		// This is required for batman-adv tool, alfred to work correctly over IPv6
+		uci.set('network', sectionId, 'ip6ifaceid', 'eui64');
 
-	if (isMeshPoint) {
+		// Create an ip6 class array if it doesn't exist
+		let ip6class = uci.get('network', sectionId, 'ip6class');
+		if (!ip6class) {
+			ip6class = [];
+		} else if (!Array.isArray(ip6class)) {
+			ip6class = [ip6class];
+		}
+
+		// Add 'local' to the ip6 class if it's not already present
+		if (!ip6class.includes('local')) {
+			ip6class.push('local');
+		}
+
+		uci.set('network', sectionId, 'ip6class', ip6class);
+		if (isMeshPoint) {
+			uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
+			uci.set('network', sectionId, 'gateway', '10.41.1.1');
+			uci.set('network', sectionId, 'dns', '1.1.1.1');
+		} else {
+			uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
+		}
+	}
+
+/* 	if (isMeshPoint) {
 		if (sectionId === 'ahwlan') {
 			uci.set('network', sectionId, 'gateway', '10.41.1.1');
 			uci.set('network', sectionId, 'ip6assign', '64'); // Assign a /64 IPv6 subnet
@@ -574,7 +602,7 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 		uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
 	} else {
 		uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
-	}
+	} */
 
 	if (!uplink) {
 		uci.set('dhcp', dhcp, 'dhcp_option', ['3', '6']);
