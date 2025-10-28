@@ -630,8 +630,8 @@ return wizard.AbstractWizardView.extend({
 		option.widget = 'radio';
 		option.orientation = 'vertical';
 		option.default = 'router';
+		option.readonly = true;
 		option.value('router', _('Router'));
-		option.value('bridge', _('Bridge'));
 		if (this.getEthernetPorts().length > 1) {
 			// Only offer the firewall option if you have multiple ethernet ports
 			// (with a single ethernet port, you're much more likely to get
@@ -639,9 +639,7 @@ return wizard.AbstractWizardView.extend({
 			option.value('router_firewall', _('Router with Firewall'));
 		}
 		option.onchange = function (ev, sectionId, value) {
-			if (value == 'bridge') {
-				this.page.updateInfoText(bridgeInfoAp, thisWizardView);
-			} else if (value == 'router') {
+			if (value == 'router') {
 				this.page.updateInfoText(routerInfoAp, thisWizardView);
 			} else if (value == 'router_firewall') {
 				this.page.updateInfoText(routerFirewallInfoAp, thisWizardView);
@@ -650,7 +648,7 @@ return wizard.AbstractWizardView.extend({
 		};
 
 		/*****************************************************************************/
-
+/* 
 		page = this.page(morseApInterfaceSection,
 			_('HaLow Wi-Fi Access Point'),
 			_(`Enable an <b>Access Point</b> (AP) to let non-mesh HaLow devices connect to the network.
@@ -683,7 +681,7 @@ return wizard.AbstractWizardView.extend({
 		option.datatype = 'wpakey';
 		option.password = true;
 		option.rmempty = false;
-		option.retain = true;
+		option.retain = true; */
 
 		/*****************************************************************************/
 
