@@ -497,15 +497,14 @@ return wizard.AbstractWizardView.extend({
 
 		/*****************************************************************************/
 
-		var ethInfoAp = _(`If you use an <b>Ethernet</b> upstream, we recommend choosing <b>Bridge</b>.
-			This allows HaLow connected devices to obtain IPs from your Ethernet network.`);
+		var ethInfoAp = _(`If you use an <b>Ethernet</b> upstream, we recommend choosing <b>Router</b>.
+			In <b>Router</b> mode the HaLow connected devices obtain IP addresses from
+			the DHCP server on this device, and this device uses NAT to forward IP traffic.`);
 		var wifiInfoAp = _(`If you use a <b>Wi-Fi</b> upstream, fill in the Wi-Fi AP credentials.
 			The HaLow connected devices obtain IP addresses from the DHCP server on this device,
 			and this device uses NAT to forward IP traffic.`);
 		var noneInfoAp = _(`In <b>None</b> mode, your device will have a static IP address and run a
 			DHCP server on all interfaces, the HaLow and non-HaLow networks will be isolated from each other.`);
-		var bridgeInfoAp = _(`In <b>Bridge</b> mode this device and the HaLow connected devices obtain IP addresses from
-			your current upstream network.`);
 		var routerInfoAp = _(`In <b>Router</b> mode the HaLow connected devices obtain IP addresses from
 			the DHCP server on this device, and this device uses NAT to forward IP traffic. <strong>Only use this if you
 			intend to connect to a trusted network</strong>, as this admin interface
@@ -630,8 +629,8 @@ return wizard.AbstractWizardView.extend({
 		option.widget = 'radio';
 		option.orientation = 'vertical';
 		option.default = 'router';
+		option.readonly = true;
 		option.value('router', _('Router'));
-		option.value('bridge', _('Bridge'));
 		if (this.getEthernetPorts().length > 1) {
 			// Only offer the firewall option if you have multiple ethernet ports
 			// (with a single ethernet port, you're much more likely to get
@@ -639,9 +638,7 @@ return wizard.AbstractWizardView.extend({
 			option.value('router_firewall', _('Router with Firewall'));
 		}
 		option.onchange = function (ev, sectionId, value) {
-			if (value == 'bridge') {
-				this.page.updateInfoText(bridgeInfoAp, thisWizardView);
-			} else if (value == 'router') {
+			if (value == 'router') {
 				this.page.updateInfoText(routerInfoAp, thisWizardView);
 			} else if (value == 'router_firewall') {
 				this.page.updateInfoText(routerFirewallInfoAp, thisWizardView);
@@ -650,40 +647,6 @@ return wizard.AbstractWizardView.extend({
 		};
 
 		/*****************************************************************************/
-
-		page = this.page(morseApInterfaceSection,
-			_('HaLow Wi-Fi Access Point'),
-			_(`Enable an <b>Access Point</b> (AP) to let non-mesh HaLow devices connect to the network.
-			This interface will be bridged with the mesh interface.`));
-		page.enableDiagram({
-			extras: ['GATE_HALOW_AP_INT_SELECT', 'GATE_HALOW_AP_INT_SELECT_FILL', 'POINT_HALOW_AP_INT_SELECT', 'POINT_HALOW_AP_INT_SELECT_FILL'],
-			blacklist: ['GATE_WIFI', 'POINT_WIFI'],
-		});
-
-		option = page.option(morseui.Slider, 'disabled', _('Enable HaLow Access Point'));
-		option.enabled = '0';
-		option.disabled = '1';
-		option.rmempty = false;
-		option.retain = true;
-		option.onchange = function () {
-			thisWizardView.onchangeOptionUpdateDiagram(this);
-		};
-
-		option = page.option(form.Value, 'ssid', _('SSID'));
-		option.rmempty = false;
-		option.retain = true;
-		option.depends('disabled', '0');
-		option.datatype = 'maxlength(32)';
-		option.onchange = function () {
-			thisWizardView.onchangeOptionUpdateDiagram(this);
-		};
-
-		option = page.option(form.Value, 'key', _('Passphrase'));
-		option.depends('disabled', '0');
-		option.datatype = 'wpakey';
-		option.password = true;
-		option.rmempty = false;
-		option.retain = true;
 
 		/*****************************************************************************/
 
