@@ -1,0 +1,20 @@
+#!/bin/sh
+
+[ "${ACTION}" = "add" ] && {
+	board_type=$(printf "%04x" "$(cat /sys/${DEVPATH}/device/board_type 2> /dev/null)");
+
+	awk -F, '$1==b{print $2, $4}' b="$board_type" /usr/share/morse-bcf/db.txt | {
+		read module_id chip_name
+
+		if [ -n "$module_id" ]; then
+			# i.e. replace only an EKH01 without a suffix with the module_id
+			sed -i "s/EKH01 /EKH01-$module_id /" /tmp/sysinfo/model
+		fi
+
+		if [ -n "$chip_name" ]; then
+			# i.e. replace MMxxxx with chip_name
+			sed -i "s/ MM....-/ $chip_name-/" /tmp/sysinfo/model
+		fi
+	}
+
+}

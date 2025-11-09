@@ -1,0 +1,94 @@
+#!/bin/sh /etc/rc.common
+
+STOP=10
+USE_PROCD=1
+SERVICE=dppd
+
+find_morse_device() {
+        local device=$1
+        local type_morse
+        config_get type_morse $device type
+
+        if [ "$type_morse" == "morse" ]; then
+                morse_radio=$1
+                return 1
+        fi
+}
+
+find_iface_ap_key() {
+        local iface=$1
+        local radio=$2
+        local dev_iface=
+        config_get dev_iface $iface device
+
+        [ "$dev_iface" != "$radio" ] && return;
+
+        local is_ap=
+        config_get is_ap $iface mode
+
+        [ "$is_ap" != "ap" ] && return;
+
+        local encryption=
+        config_get encryption $iface encryption
+
+        [ "$encryption" != "sae" ] && return;
+
+        config_get key $iface key
+}
+
+get_encryption_key() {
+        config_load wireless
+        config_foreach find_morse_device wifi-device
+        config_foreach find_iface_ap_key wifi-iface $morse_radio
+}
+
+get_ctrl_if_path() {
+        ctrl_if_path=''
+        for cpath in /var/run/hostapd_s1g/*; do
+                if [ -S "$cpath" ]; then
+                        if [ -z "$ctrl_if_path" ]; then
+                                ctrl_if_path="$cpath"
+                        else
+                                logger -t $SERVICE -p daemon.warn "Found more than one hostapd control interface in /var/run/hostapd_s1g/*"
+                                break
+                        fi
+                fi
+        done
+}
+
+start_service() {
+        get_encryption_key
+        if [ -z "$key" ]; then
+                logger -t $SERVICE -p daemon.crit "No AP on morse device with encryption as SAE"
+                return 1
+        fi
+
+        get_ctrl_if_path
+
+        if [ -z "$ctrl_if_path" ]; then
+                logger -t $SERVICE -p daemon.warn "Unable to find hostapd control interface in /var/run/hostapd_s1g; retrying after 1 sec..."
+                sleep 1
+                get_ctrl_if_path
+        fi
+
+        if [ -z "$ctrl_if_path" ]; then
+                logger -t $SERVICE -p daemon.crit "Unable to find hostapd control interface in /var/run/hostapd_s1g"
+                return 1
+        fi
+
+        procd_open_instance
+        procd_set_param command dppd --ctrl-if-path="$ctrl_if_path" --passphrase="$key"
+        procd_set_param stdout 1
+        procd_set_param stderr 1
+        procd_append_param command --http-secrets=/etc/dppd/auth_secrets.txt
+        procd_append_param command --tls-cert=/etc/dppd/server.pem --tls-key=/etc/dppd/server.key
+        procd_append_param command --configurator-key=/etc/dppd/key.pem --configurator-private-key=/etc/dppd/ppkey.pem
+        procd_append_param command daemon
+        procd_set_param limits as="15000000 15000000"
+        procd_set_param respawn 3600 5 50
+        procd_close_instance
+}
+
+service_triggers() {
+        procd_add_reload_trigger wireless
+}

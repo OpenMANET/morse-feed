@@ -1,0 +1,152 @@
+
+'use strict';
+
+import * as nl80211 from "nl80211";
+import { cursor } from 'uci';
+import { readfile } from "fs";
+
+const fs = require('fs');
+const uci = cursor();
+
+function _execute_command(command) {
+        let proc = fs.popen(command);
+        if (!proc) { die(`Unable to execute the command ${command} (${fs.error()}).`); }
+
+        const output = proc.read('all');
+        if (output === null) { die(`Unable to read output from ${command} (${fs.error()}).`); }
+
+        const exit_code = proc.close();
+        if (exit_code !== 0) { die(`An error occurred whilst executing the command ${command} (exit code: ${exit_code}).`); }
+
+        return {
+                output: output,
+                exit_code: exit_code
+        };
+}
+
+function get_morse_mesh_iface() {
+	let morsePath;
+
+	uci.foreach('wireless', 'wifi-device', section => {
+		if (section.type == 'morse') {
+			morsePath = section.path;
+			return false; // stop the loop
+		}
+	});
+
+	let phy_result = _execute_command(`iwinfo dot11ah phyname path=${morsePath}`);
+	if (phy_result.output != null) {
+		let phy = trim(phy_result.output);
+		let phyidx = int(readfile(`/sys/class/ieee80211/${phy}/index`));
+		let data = nl80211.request(
+				nl80211.const.NL80211_CMD_GET_INTERFACE,
+				nl80211.const.NLM_F_DUMP,
+				{ wiphy: phyidx });
+
+		for (let res in data) {
+			if (res.iftype == nl80211.const.NL80211_IFTYPE_MESH_POINT)
+				return res.ifname;
+		}
+	}
+}
+
+function get_neighbors(iface) {
+	let neighbors = [];
+	let sta_dump = nl80211.request(
+				nl80211.const.NL80211_CMD_GET_STATION,
+				nl80211.const.NLM_F_DUMP,
+				{ dev: iface });
+
+	if (!sta_dump)
+		return null;
+
+	for (let sta in sta_dump) {
+		let sta_info = sta["sta_info"];
+		if (sta_info && sta_info["plink_state"] == 4) {
+			push(neighbors, {
+				mac: sta["mac"],
+				signal: sta_info["signal"]
+				});
+		}
+	}
+	return neighbors;
+}
+
+function get_paths(iface) {
+	let mpath_dump = nl80211.request(
+				nl80211.const.NL80211_CMD_GET_MPATH,
+				nl80211.const.NLM_F_DUMP,
+				{ dev: iface });
+
+	if (!mpath_dump)
+		return null;
+
+	let paths = [];
+	for (let path in mpath_dump) {
+		if (path["mac"] != path["mpath_next_hop"]) {
+			let path_info = path["mpath_info"];
+			push(paths, {
+				destination: path["mac"],
+				next_hop : path["mpath_next_hop"],
+				hop_count: path_info["hop_count"]
+			});
+		}
+	}
+
+	return paths;
+}
+
+function get_count(neighbors, paths) {
+	let count = 0;
+	let non_neigh = {};
+
+	if (!neighbors)
+		return count;
+
+	count += length(neighbors);
+
+	if (!paths)
+		return count;
+
+	for (let path in paths) {
+		let mac=path["destination"];
+		if (mac && !non_neigh[mac]) {
+			non_neigh[mac] = true;
+			count++;
+		}
+	}
+	return count;
+}
+
+function get_topology() {
+	let iface = get_morse_mesh_iface();
+	if (!iface) {
+		return { error: "No interface found" };
+	}
+
+	let mac = trim(readfile(`/sys/class/net/${iface}/address`));
+	let hostname = uci.get("system", "@system[0]", "hostname");
+
+	let neighbors = get_neighbors(iface);
+	let paths = get_paths(iface);
+
+	let mesh_peer_count = get_count(neighbors, paths);
+
+	return {
+		nodeinfo: {
+			macaddress: mac,
+			hostname: hostname,
+			mesh_peer_count: mesh_peer_count
+		},
+		neighbors: neighbors,
+		paths: paths
+	};
+}
+
+return {
+	mesh11s: {
+		get_topology: {
+			call: get_topology,
+		}
+	}
+};

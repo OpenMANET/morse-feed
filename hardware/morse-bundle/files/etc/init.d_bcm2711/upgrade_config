@@ -1,0 +1,83 @@
+#!/bin/sh /etc/rc.common
+
+# WARNING: this script may reboot your device!
+#
+# This migrates our old static config to distroconfig.txt so it's preserved
+# across upgrades, but we want to make sure that people who have
+# a mostly default config.txt get migrated.
+# However, it won't apply until the device has been rebooted, so we
+# disable the script and reboot the device.
+#
+# Ideally, I guess there would be some kind of hook in platform_copy_config
+# to handle this, but since we can't go back in time...
+#
+# It must be run after sysupgrade.tar.gz is applied _and deleted_, which
+# happens in the 'done' script (at START=95).
+
+
+START=96
+
+boot() {
+	cd /boot; patch <<PATCH_EOF
+--- config.txt
++++ config.txt
+@@ -10,3 +10,3 @@
+ # OpenWrt config
+-# include distroconfig.txt
++include distroconfig.txt
+ 
+@@ -15,35 +15,3 @@
+ 
+-# To use an external initramfs file
+-#initramfs rootfs.cpio.gz
+-
+-# Disable overscan assuming the display supports displaying the full resolution
+-# If the text shown on the screen disappears off the edge, comment this out
+-disable_overscan=1
+-
+-# How much memory in MB to assign to the GPU on Pi models having
+-# 256, 512 or 1024 MB total memory
+-gpu_mem_256=128
+-gpu_mem_512=128
+-gpu_mem_1024=128
+-
+-# fixes rpi3 ttyAMA0 serial console
+-dtoverlay=pi3-miniuart-bt
+-
+-#enable uart
+-uart_enable=1
+-
+-#enable sdio
+-dtoverlay=sdio,poll_once=on
+-
+-#setup sub 50MHz SDIO clock
+-dtparam=sdio_overclock=42
+-
+-#enable uart5
+-dtoverlay=uart5
+-
+-#enable morse gpio configuration
+-dtoverlay=mm_wlan
+-
+-#adds morse-ps device tree
+-dtoverlay=morse-ps
++# These settings may be adjusted by the morse_setup_spi.sh script.
+ #enable spi
+PATCH_EOF
+	PATCH_RETURN_CODE="$?"
+	cd -
+	# Unfortunately, calling disable doesn't work (wrong initscript val)
+	# and service upgrade_config disable is doing nothing (unclear why).
+	rm -f /etc/rc.d/S??upgrade_config
+
+	if [ "$PATCH_RETURN_CODE" = 0 ]; then
+		# Remove any camera setup as this is handled in distroconfig.txt
+		# We don't have this in the patch because:
+		#  - it differs between versions
+		#  - potentially people added it manually
+		#  - this occurs _after_ the SPI lines we have to keep
+		sed -i -e '/^start_x=1/d' -e '/^camera_auto_detect=1/d' /boot/config.txt
+		echo 'Rebooting after upgrading /boot/config.txt...' > /dev/kmsg
+		reboot
+	fi
+}

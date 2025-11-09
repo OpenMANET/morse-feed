@@ -1,0 +1,5 @@
+# ttyd listens on '@lan', which is not enough for all our configuration variants (wlan).
+# Instead listen everywhere and rely on the wan firewall to block access.
+# This makes ttyd the same as dropbear.
+
+uci del ttyd.@ttyd[0].interface

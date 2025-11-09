@@ -1,0 +1,245 @@
+commit e378ce077f21f16b0dba9071fae6d0aa35b5adc3
+Author: Prabha Murugesan <prabha.murugesan@morsemicro.com>
+Date:   Thu Jul 3 09:56:29 2025 +1000
+
+    APP-4107 : Export 4.3v FEM support via sysfs
+
+diff --git a/hw.c b/hw.c
+index f275e9b8..f93a172f 100644
+--- a/hw.c
++++ b/hw.c
+@@ -28,6 +28,10 @@ module_param(reattach_hw, bool, 0644);
+ MODULE_PARM_DESC(reattach_hw,
+ 	"Do not reset hardware state during module exit, attempt to reattach during module init");
+ 
++bool enable_4v3_fem __read_mostly;
++module_param(enable_4v3_fem, bool, 0644);
++MODULE_PARM_DESC(enable_4v3_fem, "Enables 4.3V FEM");
++
+ int morse_hw_irq_enable(struct morse *mors, u32 irq, bool enable)
+ {
+ 	u32 irq_en, irq_en_addr = irq < 32 ? MORSE_REG_INT1_EN(mors) : MORSE_REG_INT2_EN(mors);
+@@ -513,3 +517,58 @@ bool morse_hw_should_reattach(void)
+ {
+ 	return reattach_hw;
+ }
++
++int morse_4v3_fem_init(struct morse *mors)
++{
++	int ret;
++
++	if (!mors || !mors->cfg)
++		return -EINVAL;
++
++	// Do not error out on the optional 4.3V FEM GPIO
++	if (!gpio_is_valid(mors->cfg->mm_4v3_fem_gpio))
++		return 0;
++
++	ret = gpio_request(mors->cfg->mm_4v3_fem_gpio, "morse-4v3-fem-ctrl");
++	if (ret < 0) {
++		MORSE_PR_ERR(FEATURE_ID_DEFAULT, "Failed to request 4v3 FEM GPIO (gpio=%d, ret=%d)\n",
++		             mors->cfg->mm_4v3_fem_gpio, ret);
++		return ret;
++	}
++
++	ret = gpio_direction_output(mors->cfg->mm_4v3_fem_gpio, enable_4v3_fem);
++	if (ret < 0) {
++		MORSE_PR_ERR(FEATURE_ID_DEFAULT, "Failed to set direction for 4v3 FEM GPIO (ret=%d)\n", ret);
++		gpio_free(mors->cfg->mm_4v3_fem_gpio);
++		return ret;
++	}
++
++	MORSE_DBG(mors, "Initialized 4v3 FEM GPIO %d (value: %d)\n",
++          mors->cfg->mm_4v3_fem_gpio, enable_4v3_fem);
++
++	return 0;
++}
++
++int morse_get_4v3_fem_state(struct morse *mors)
++{
++	if(gpio_is_valid(mors->cfg->mm_4v3_fem_gpio))
++		return gpio_get_value(mors->cfg->mm_4v3_fem_gpio);
++	return 0;
++}
++
++int morse_set_4v3_fem_state(struct morse *mors, int state)
++{
++	if(gpio_is_valid(mors->cfg->mm_4v3_fem_gpio))
++		gpio_set_value(mors->cfg->mm_4v3_fem_gpio, state);
++	return 0;
++}
++
++int morse_4v3_fem_free(struct morse *mors)
++{
++	if (!mors || !mors->cfg)
++		return -EINVAL;
++
++	if (gpio_is_valid(mors->cfg->mm_4v3_fem_gpio))
++		gpio_free(mors->cfg->mm_4v3_fem_gpio);
++	return 0;
++}
+diff --git a/hw.h b/hw.h
+index 02993f9c..9d4a6ce0 100644
+--- a/hw.h
++++ b/hw.h
+@@ -407,6 +407,7 @@ struct morse_hw_cfg {
+ 	u32 mm_wake_gpio;
+ 	u32 mm_ps_async_gpio;
+ 	u32 mm_spi_irq_gpio;
++	u32 mm_4v3_fem_gpio;
+ };
+ 
+ struct morse_chip_series {
+@@ -584,4 +585,56 @@ bool morse_hw_is_stopped(struct morse *mors);
+  */
+ bool morse_hw_should_reattach(void);
+ 
++/**
++ * morse_4v3_fem_init - Initialise the 4.3V FEM GPIO
++ *
++ * @mors: Pointer to the morse device context
++ *
++ * This function requests and configures the optional 4.3V FEM GPIO,
++ * setting it as output and applying the default value based on the
++ * enable_4v3_fem module parameter. It is safe to call even if the
++ * GPIO is optional or invalid.
++ *
++ * @return 0 on success, or a negative error code on failure
++ */
++int morse_4v3_fem_init(struct morse *mors);
++
++/**
++ * morse_get_4v3_fem_state - Read the current state of the 4.3V FEM GPIO
++ *
++ * @mors: Pointer to the morse device context
++ *
++ * This function returns the current logical level of the 4.3V FEM GPIO.
++ * If the GPIO is invalid or not configured, it safely returns 0.
++ *
++ * @return 1 if the GPIO is high, 0 if low or invalid
++ */
++int morse_get_4v3_fem_state(struct morse *mors);
++
++/**
++ * morse_set_4v3_fem_state - Set the logical state of the 4.3V FEM GPIO
++ *
++ * @mors: Pointer to the morse device context
++ * @state: Desired GPIO level (0 for low, 1 for high)
++ *
++ * This function sets the output level of the 4.3V FEM GPIO.
++ * It has no effect if the GPIO is invalid.
++ *
++ * @return 0 on success, or a negative error code on failure
++ */
++int morse_set_4v3_fem_state(struct morse *mors, int state);
++
++/**
++ * morse_4v3_fem_free - Release the 4.3V FEM GPIO
++ *
++ * @mors: Pointer to the morse device context
++ *
++ * This function frees the 4.3V FEM GPIO if it was previously requested,
++ * releasing any associated kernel resources. It is safe to call even if
++ * the GPIO is optional or invalid.
++ *
++ * @return 0 on success, or a negative error code on failure
++ */
++int morse_4v3_fem_free(struct morse *mors);
++
+ #endif /* !_MORSE_HW_H_ */
+diff --git a/mac.c b/mac.c
+index af7f7cc0..a02b67b3 100644
+--- a/mac.c
++++ b/mac.c
+@@ -7016,6 +7016,10 @@ int morse_mac_register(struct morse *mors)
+ 	INIT_WORK(&mors->health_check, morse_health_check_work);
+ 	INIT_WORK(&mors->hw_stop, morse_hw_stop_work);
+ 
++	ret = morse_4v3_fem_init(mors);
++	if (ret)
++		MORSE_ERR(mors, "Unable to initialise 4.3V FEM GPIO \n");
++
+ 	ret = morse_sysfs_init(mors);
+ 	if (ret)
+ 		MORSE_ERR(mors, "Unable to initialise sysfs\n");
+@@ -7208,6 +7212,7 @@ static void morse_mac_deinit(struct morse *mors)
+ void morse_mac_unregister(struct morse *mors)
+ {
+ 	morse_sysfs_free(mors);
++	morse_4v3_fem_free(mors);
+ 	morse_led_exit(mors);
+ 	morse_deinit_debug(mors);
+ 	morse_ps_disable(mors);
+diff --git a/of.c b/of.c
+index d961a500..44799c1b 100644
+--- a/of.c
++++ b/of.c
+@@ -44,6 +44,11 @@ int morse_of_probe(struct device *dev, struct morse_hw_cfg *cfg,
+ 			/* Don't error on spi-irq-gpios - this might not be a SPI device */
+ 			gpio_pin = of_get_named_gpio(np, "spi-irq-gpios", 0);
+ 			cfg->mm_spi_irq_gpio = gpio_pin;
++
++			/* Don't error on optional 4v3_fem_gpio */
++			gpio_pin = of_get_named_gpio(np, "fem-4v3-gpios", 0);
++			cfg->mm_4v3_fem_gpio = gpio_pin;
++
+ 			return 0;
+ 		}
+ 		dev_err(dev, "%s: Couldn't match device table\n", __func__);
+diff --git a/sysfs.c b/sysfs.c
+index 62417ea6..550fa500 100644
+--- a/sysfs.c
++++ b/sysfs.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <linux/sysfs.h>
++#include <linux/gpio.h>
+ #include "morse.h"
+ #include "sysfs.h"
+ #include "debug.h"
+@@ -57,6 +58,24 @@ static ssize_t countries_show(struct device *dev,
+ 
+ static DEVICE_ATTR_RO(countries);
+ 
++static ssize_t mm_4v3_fem_show(struct device *dev,
++					   struct device_attribute *attr,
++					   char *buf)
++{
++	struct morse *mors = dev_get_drvdata(dev);
++
++	if (!mors || !mors->cfg)
++		return -EINVAL;
++
++#if KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE
++	return sysfs_emit(buf, "%d\n", morse_get_4v3_fem_state(mors));
++#else
++	return snprintf(buf, PAGE_SIZE, "%d\n", morse_get_4v3_fem_state(mors));
++#endif
++}
++
++static DEVICE_ATTR_RO(mm_4v3_fem);
++
+ int morse_sysfs_init(struct morse *mors)
+ {
+ 	int ret;
+@@ -69,6 +88,12 @@ int morse_sysfs_init(struct morse *mors)
+ 	if (ret < 0)
+ 		MORSE_ERR(mors, "failed to create sysfs file countries");
+ 
++	// Create a sysfs entry only when 4.3V FEM Support configure from dts.
++	if (gpio_is_valid(mors->cfg->mm_4v3_fem_gpio)) {
++		ret = device_create_file(mors->dev, &dev_attr_mm_4v3_fem);
++		if (ret < 0)
++			MORSE_ERR(mors, "failed to create sysfs file 4,3v FEM support");
++	}
+ 	return ret;
+ }
+ 
+@@ -76,4 +101,6 @@ void morse_sysfs_free(struct morse *mors)
+ {
+ 	device_remove_file(mors->dev, &dev_attr_board_type);
+ 	device_remove_file(mors->dev, &dev_attr_countries);
++	if (gpio_is_valid(mors->cfg->mm_4v3_fem_gpio))
++		device_remove_file(mors->dev, &dev_attr_mm_4v3_fem);
+ }

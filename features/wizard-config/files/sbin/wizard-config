@@ -1,0 +1,616 @@
+#!/usr/bin/ucode -RS
+
+const HELP = `
+wizard_config automatic configurator
+
+This implements two sides of an automatic configuration process for
+client devices. The intent is that the primary device (the server)
+serves a configuration file which other devices (the clients) discover
+and apply.
+
+WARNING!!!
+
+This auto-configure code _relies_ on a HalowLink 1 being in a
+fresh 'reset to Extender' (aqua) mode to work correctly, and
+cannot reconfigure the device in an arbitrary way. The code
+is currently only run in this circumstance.
+
+It also has some interesting security issues:
+ - credentials for the router are available locally via HTTP
+   (i.e. if you're on the local network, you have access)
+ - if the first DHCP client address is obtained from something other
+   than a HaLowLink, it may discover a _different_ wizard-config umdns
+   uhttpd TXT record, allowing someone on the local network to tell it
+   to connect to an entirely different network. To make this less
+   serious, the device will only reconfigure itself the first time
+   it connects to a network.
+
+So we rely heavily on the local network being secure; this is our
+general posture, since router passwords are sent in clear-text anyway.
+
+This is a quick and dirty version of provisioning similar to DPP,
+and can actually work after a 'normal' DPP connection. Hopefully in the
+future we have the time to implement this behaviour via DPP.
+
+END WARNING!!!
+
+    wizard_config server
+
+        => configure uhttpd so the _http._tcp umdns advertisement 
+		   shows a wizard-config TXT record and create a 
+		   /www/wizard_config.json file for our http server.
+           This is usually run via /etc/init.d/wizard-config
+
+    wizard_config serverstop
+
+        => cleanup: remove the wizard-config TXT record from the
+		   umdns entry for the uhttpd service. This is usually run 
+		   via /etc/init.d/wizard-config
+
+    wizard_config client <preferredip>
+
+        => use umdns to find a _http._tcp service with a wizard-config 
+		   TXT record, preferring preferredip if available. Then make 
+		   an HTTP request against http://ip:port/wizard_config.json, 
+		   and interpret this file to mutate (and subsequently reload) 
+		   the device config. This is usually run by 
+		   /etc/user.udhcpc.d/wizard-config
+
+The JSON blob response currently looks something like:
+
+    {
+        "mode": "standard",
+        "ssid": "foobar",
+        "key": "secret123",
+    }
+
+i.e. a set of simple key/value pairs, where the values are all strings.
+These values vary slightly depending on what the mode is; see
+generate_config() and apply_config() for the details. The good news
+is that because we define both sides of our interaction in this file,
+the chance for incompatibility is reduced, though of course we do need
+to take care if different versions interact. I would suggest
+creating a new TXT record entry if we want to achieve this (i.e.
+path_v2).
+
+Currently, this code is somewhat tied to working only for the default
+Extender configuration for HaLowLink 1, and as such is essentially limited
+to mutating the expected starting config in this mode.
+
+So it\'s easier to test individual parts of the system, it also supports
+the following commands. These should only be needed for development and
+testing:
+
+    wizard-config _apply_config "JSONBLOB"
+    wizard-config _find_service_urls
+    wizard-config _fetch_config url1 url2
+    wizard-config _umdns_configure
+    wizard-config _generate_config
+
+`;
+
+
+import { connect } from "ubus";
+import { cursor } from "uci";
+import { popen, error, readfile, writefile, unlink } from "fs";
+import { rand } from "math";
+
+
+/* mDNS name of the service.
+ */
+const SERVICE = "_http._tcp";
+
+const WWW_ROOT = "/www";
+const PATH_V1 = "/wizard-config.json";
+
+
+/* mDNS service definition.
+ * 
+ * uhttpd is setup to advertise custom services via it's TXT records.
+ * These values must be key-value pairs and should use a 
+ * <package>_<attribute>=<value> format where applicable.
+ */
+const UMDNS_TXT_KEY = "wizard-config_path_v1";
+const UMDNS_TXT_RECORD = UMDNS_TXT_KEY + "=" + PATH_V1;
+
+/* This IP is automatically set, but isn't likely to be addressable from
+ * the device (and probably points to itself, which is dangerous if it
+ * has an old wizard-config.json left around!).
+ */
+const MANAGEMENT_ALIAS_IP = '10.22.121.111';
+
+const UMDNS_RETRY_LIMIT = 5;
+const HTTP_RETRY_LIMIT = 3;
+
+
+/* Find all services of a particular type via mDNS.
+ *
+ * This will try multiple times, waiting after call umdns update.
+ *
+ * Example ubus browse output:
+ * 
+ * # ubus call umdns browse '{"service": "_http._tcp", "array": true}'
+ * {
+ *	"_http._tcp": {
+ *		"halowlink1-f4a1": {
+ *			"iface": "br-ahwlan",
+ *			"host": "halowlink1-f4a1.local",
+ *			"port": 80,
+ *			"txt": ["daemon=uhttpd"]
+ *			"txt": ["rangetest_api_version=0.1.0"]
+ *			"txt": ["wizard-config_path_v1=/wizard-config.json"]
+ *			"ipv4": ["10.11.0.227"],
+ *			"ipv6": ["fd82:57:cd72::1", "fe80::9683:c4ff:fe55:f4a2"]
+ *		}
+ *	}
+ * }
+ */
+function find_services(ubus, service) {
+	for (let i = 0; i < UMDNS_RETRY_LIMIT; ++i) {
+		const result = ubus.call("umdns", "browse", { service, array: true });
+		if (!result) {
+			warn("umdns browse error: '", ubus.error(), "'\n");
+		} else if (result[service]) {
+			return values(result[service]);
+		}
+
+		// Couldn't find it. Let's try updating and wait for a bit.
+		if (!ubus.call("umdns", "update") && ubus.error()) {
+			warn("umdns update error: '", ubus.error(), "'\n");
+		}
+		sleep(1000);
+	}
+
+	return null;
+}
+
+
+/* Fetch config from URL.
+ *
+ * Return a string if failure, a JSON blob on success. This is so we can easily retry.
+ *
+ * When OpenWrt 24 is released, this can be migrated to ucode-mod-uclient rather than
+ * having to use popen.
+ */
+function fetch_config_once(url) {
+	// It seems there's no good way to do a popen without passing through the shell (!!!).
+	// We don't have a good way to url encode this, but I think we're pretty safe if we just make
+	// sure there are no single quotes.
+	const proc = popen(`uclient-fetch -T 2 -q -O - '${replace(url, "'", "%27")}'`);
+	if (!proc) {
+		return `Unable to request expected file (${url}): ${error()}`;
+	}
+
+	const raw_config = proc.read("all");
+	if (raw_config === null) {
+		return `Unable to read output from ${url}: ${proc.error()}`;
+	}
+
+	const proc_code = proc.close();
+	if (proc_code !== 0) {
+		return `uclient-fetch had error (${url}): ${proc_code}`;
+	}
+
+	try {
+		return json(raw_config);
+	} catch (e) {
+		return `Configurator gave invalid JSON (${url}[:100]): ${[substr(raw_config, 0, 100)]}"`;
+	}
+}
+
+
+/* Check that the config object has all the noted params as strings.
+ */
+function check_config(config, params) {
+	let has_error = false;
+	for (let param in params) {
+		if (type(config[param]) !== "string") {
+			warn("Missing valid config param: ", param, type(param), "\n");
+			has_error = true;
+		}
+	}
+
+	assert(!has_error, "Stopping due to bad config object from service\n");
+}
+
+
+function find_morse_device(uci) {
+	const w = uci.get_all("wireless");
+	return filter(keys(w),
+		s => w[s][".type"] === "wifi-device" && w[s]["type"] === "morse" && w[s]["disabled"] !== "1")[0];
+}
+
+
+function find_ifaces(uci, device) {
+	const w = uci.get_all("wireless");
+	return filter(keys(w),
+		s => w[s][".type"] === "wifi-iface" && w[s]["device"] === device && w[s]["disabled"] !== "1");
+}
+
+function find_wifi_device(uci) {
+	const w = uci.get_all("wireless");
+	return filter(keys(w),
+		s => w[s][".type"] === "wifi-device" && w[s]["type"] === "mac80211" && w[s]["disabled"] !== "1")[0];
+}
+
+/* Interpret the json blob, applying the necessary changes for each mode.
+ */
+function apply_config (uci, config) {
+	assert(uci.load("wireless"), "Missing wireless config; aborting.\n");
+	assert(uci.load("system"), "Missing system config; aborting.\n");
+
+	const morse_device = find_morse_device(uci);
+	assert(morse_device, "Unable to find morse wifi-device in UCI wireless config.\n");
+
+	const morse_iface = find_ifaces(uci, morse_device)[0];
+	assert(morse_iface, "Unable to find morse wifi-iface in UCI wireless config.\n");
+
+	switch (config.mode) {
+	case 'standard':
+		check_config(config, ["country", "ssid", "key", "encryption"]);
+		uci.set("wireless", morse_device, "country", config.country);
+		uci.set("wireless", morse_iface, "mode", "sta");
+		// Disable powersave since this is only used for Extenders where
+		// power is not a concern (powersave causes higher latency).
+		uci.set("wireless", morse_iface, "powersave", "0");
+		uci.set("wireless", morse_iface, "ssid", config.ssid);
+		uci.delete("wireless", morse_iface, "mesh_id");
+		uci.set("wireless", morse_iface, "key", config.key);
+		uci.set("wireless", morse_iface, "encryption", config.encryption);
+		break;
+	case 'mesh11s':
+		check_config(config, ["country", "channel", "mesh_id", "key", "encryption"]);
+		uci.set("wireless", morse_device, "country", config.country);
+		uci.set("wireless", morse_device, "channel", config.channel);
+		uci.set("wireless", morse_iface, "mode", "mesh");
+		uci.set("wireless", morse_iface, "mesh_id", config.mesh_id);
+		uci.delete("wireless", morse_iface, "ssid");
+		uci.set("wireless", morse_iface, "key", config.key);
+		uci.set("wireless", morse_iface, "encryption", config.encryption);
+		break;
+	case 'prplmesh':
+		check_config(config, ["country", "channel", "ssid", "key", "encryption"]);
+		assert(uci.load("network"), "Device missing uci network config");
+		assert(uci.load("prplmesh"), "Configurator requests prplmesh but prplmesh is not installed.");
+
+		uci.set("wireless", morse_device, "country", config.country);
+		// prplmesh shouldn't require a channel, but currently does due to
+		// a bug with bringing up a HaLow AP and STA at the same time.
+		uci.set("wireless", morse_device, "channel", config.channel);
+
+		uci.set("wireless", morse_iface, "mode", "ap");
+		uci.set("wireless", morse_iface, "ssid", config.ssid);
+		uci.delete("wireless", morse_iface, "mesh_id");
+		uci.set("wireless", morse_iface, "key", config.key);
+		uci.set("wireless", morse_iface, "encryption", config.encryption);
+		uci.set("wireless", morse_iface, "bss_transition", "1");
+		uci.set("wireless", morse_iface, "multi_ap", "3");
+		uci.set("wireless", morse_iface, "ieee80211k", "1");
+		uci.set("wireless", morse_iface, "ieee80211w", "2");
+		uci.set("wireless", morse_iface, "ifname", "wlan-prpl");
+                
+		const backhaul_sta = "default_bh_" + morse_device;
+		uci.set("wireless", backhaul_sta, "wifi-iface");
+		uci.set("wireless", backhaul_sta, "device", morse_device);
+		uci.set("wireless", backhaul_sta, "network", "lan");
+		uci.set("wireless", backhaul_sta, "mode", "sta");
+		// Disable powersave since this is only used for Extenders where
+		// power is not a concern (powersave causes higher latency).
+		uci.set("wireless", backhaul_sta, "powersave", "0");
+		uci.set("wireless", backhaul_sta, "ssid", config.ssid);
+		uci.set("wireless", backhaul_sta, "key", config.key);
+		uci.set("wireless", backhaul_sta, "multi_ap", "1");
+		uci.set("wireless", backhaul_sta, "wds", "1");
+		uci.set("wireless", backhaul_sta, "encryption", config.encryption);
+		uci.set("wireless", backhaul_sta, "ifname", "wlan-prpl-1");
+		// Use backhaul link for showing halow info, since that's the one
+		// most likely to indicate that it's working (and traffic from AP
+		// will generally show on the backhaul link anyway).
+		uci.set("system", "led_halow", "dev", "wlan-prpl-1");
+
+		uci.set("prplmesh", "config", "enable", "1");
+		uci.set("prplmesh", "config", "management_mode", "Multi-AP-Agent");
+		uci.set("prplmesh", "config", "master", "0");
+		uci.set("prplmesh", "config", "gateway", "0");
+		uci.set("prplmesh", "config", "wired_backhaul", "0");
+		uci.set("prplmesh", "config", "operating_mode", "WDS-Repeater");
+
+		// prplmesh demands that its bridge is named br-prpl. How annoying.
+		uci.foreach("network", "device", section => {
+			if (section['name'] === 'br-lan') {
+				uci.set("network", section[".name"], "name", "br-prpl");
+				const morse_macaddr = readfile("/sys/class/net/wlan0/address");
+				const suffix = morse_macaddr
+					? substr(rtrim(morse_macaddr), 3)
+					: join(':', map([rand(), rand(), rand(), rand(), rand()], (n) => hexenc(chr(n % 256))));
+				uci.set("network", section[".name"], "macaddr", `f2:${suffix}`);
+			}
+		});
+		uci.set("network", "lan", "device", "br-prpl");
+
+		uci.set("prplmesh", morse_device, "wifi-device");
+		uci.set("prplmesh", morse_device, "hostap_iface", "wlan-prpl");
+		uci.set("prplmesh", morse_device, "sta_iface", "wlan-prpl-1");
+
+		const wifi_device = find_wifi_device(uci);
+		assert(morse_device, "Unable to find mac80211 wifi-device in UCI wireless config.\n");
+
+		const wifi_iface = find_ifaces(uci, wifi_device)[0];
+		assert(wifi_iface, "Unable to find mac80211 wifi-iface in UCI wireless config.\n");
+
+		// Configure the 2.4GHz radio to be managed by prplmesh.
+		// prplmesh handles the synchronisation of network credentials from the Halow Base controller.
+		uci.set("prplmesh", wifi_device, "wifi-device");
+		uci.set('prplmesh', wifi_device, 'hostap_iface', 'wl0-prpl');
+		uci.set('wireless', wifi_iface, 'ifname', 'wl0-prpl');
+		uci.set('system', 'led_80211n_ap', 'dev', 'wl0-prpl');
+		uci.set('wireless', wifi_iface, 'encryption', 'sae-mixed');
+		uci.set('wireless', wifi_iface, 'bss_transition', '1');
+		uci.set('wireless', wifi_iface, 'multi_ap', '2');
+		break;
+	default:
+		die(`Mode not understood: ${config.mode}\n`);
+	}
+};
+
+
+/* If uci changes have been made, commit and notify.
+ */
+function commit_config(ubus, uci) {
+	const config_files = keys(uci.changes());
+
+	if (length(keys(config_files)) < 0) {
+		return;
+	}
+
+	assert(uci.commit(), "Failed to commit changed config");
+
+	// Tell procd about the changes, as /bin/reload_config does.
+	for (let cf in config_files) {
+		if (!ubus.call("service", "event", { type: "config.change", data: { package: cf } })) {
+			warn(ubus.error(), "\n");
+		}
+	}
+}
+
+
+/* Get the config from the urls (trying each in order).
+ */
+function fetch_config(urls) {
+	if (length(urls) === 0) {
+		warn(`ERROR: Unable to find any ${SERVICE} services\n`);
+		exit(1);
+	}
+
+	let result;
+	for (let url in urls) {
+		for (let i = 0; i < HTTP_RETRY_LIMIT; ++i) {
+			result = fetch_config_once(url);
+			if (type(result) === "object") { 
+				return result;
+			}
+			warn(result, "\n");
+			sleep(200);
+		}
+	}
+
+	warn(`ERROR: Unable to load ${SERVICE} from any of ${urls}\n`);
+	exit(1);
+};
+
+
+function find_service_urls(ubus, dhcp_server_ipv4) {
+	const services = find_services(ubus, SERVICE) || [];
+
+	const urls = [];
+	for (let service in services) {
+		const ips = [];
+		if (service.ipv4) {
+			push(ips, ...filter(service.ipv4, ip => ip !== MANAGEMENT_ALIAS_IP));
+		}
+
+		let port = service.port;
+
+		let path;
+		for (let txt in service.txt) {
+			txt = split(txt, "=");
+			if (txt[0] === UMDNS_TXT_KEY) {
+				path = txt[1];
+			}
+		}
+
+		for (let ip in ips) {
+			const url = `http://${ip}:${port}${path}`;
+			if (ip === dhcp_server_ipv4) {
+				unshift(urls, url);
+			} else {
+				push(urls, url);
+			}
+		}
+	}
+
+	return urls;
+}
+
+
+/* Write string to fname only if file is not already there with the specified contents.
+ *
+ * Returns false if no write happened.
+ */
+function write_if_necessary(fname, string) {
+	const existing = readfile(fname);
+
+	if (existing === string) {
+		return false;
+	}
+
+	assert(writefile(fname, string), `Unable to write to ${fname}: ${error()}\n`);
+
+	return true;
+}
+
+
+function umdns_configure(ubus) {
+	const uci = cursor();
+	let uhttpd_mdns_txt = uci.get('uhttpd', 'main', 'mdns_txt') ?? [];
+	if (type(uhttpd_mdns_txt) !== "array") {
+		uhttpd_mdns_txt = [uhttpd_mdns_txt];
+	}
+
+	if (index(uhttpd_mdns_txt, UMDNS_TXT_RECORD) === -1) {
+		push(uhttpd_mdns_txt, UMDNS_TXT_RECORD);
+		uci.set('uhttpd', 'main', 'mdns_txt', uhttpd_mdns_txt);
+		commit_config(ubus, uci);
+	}
+};
+
+
+function serverstop(ubus) {
+	const uci = cursor();
+	let uhttpd_mdns_txt = uci.get('uhttpd', 'main', 'mdns_txt') ?? [];
+	if (type(uhttpd_mdns_txt) !== "array") {
+		uhttpd_mdns_txt = [uhttpd_mdns_txt];
+	}
+
+	uhttpd_mdns_txt = filter(uhttpd_mdns_txt, txt_record => txt_record !== UMDNS_TXT_RECORD);
+
+	if (length(uhttpd_mdns_txt) === 0) {
+		uci.delete('uhttpd', 'main', 'mdns_txt');
+	} else {
+		uci.set('uhttpd', 'main', 'mdns_txt', uhttpd_mdns_txt);
+	}
+
+	commit_config(ubus, uci);
+}
+
+
+function generate_config(uci) {
+	assert(uci.load("wireless"), "Missing wireless config; aborting.\n");
+	const prplmesh_enabled = uci.load("prplmesh") && uci.get("prplmesh", "config", "enable") === "1";
+
+	const morse_device = find_morse_device(uci);
+	assert(morse_device, "Unable to find morse wifi-device in UCI wireless config.\n");
+
+	const morse_ifaces = find_ifaces(uci, morse_device);
+
+	// Prefer 802.11s Mesh Point config if available.
+	for (let iface in morse_ifaces) {
+		if (uci.get("wireless", iface, "mode") === "mesh") {
+			return {
+				mode: "mesh11s",
+				country: uci.get("wireless", morse_device, "country"),
+				channel: uci.get("wireless", morse_device, "channel"),
+				mesh_id: uci.get("wireless", iface, "mesh_id"),
+				key: uci.get("wireless", iface, "key"),
+				encryption: uci.get("wireless", iface, "encryption"),
+			};
+		}
+	}
+
+	for (let iface in morse_ifaces) {
+		if (uci.get("wireless", iface, "mode") === "ap") {
+			return {
+				mode: prplmesh_enabled ? "prplmesh" : "standard",
+				country: uci.get("wireless", morse_device, "country"),
+				channel: uci.get("wireless", morse_device, "channel"),
+				ssid: uci.get("wireless", iface, "ssid"),
+				key: uci.get("wireless", iface, "key"),
+				encryption: uci.get("wireless", iface, "encryption"),
+			};
+		}
+	}
+
+	die("Unable to generate config; no enabled HaLow AP/mesh wifi-iface.");
+};
+
+
+function write_config(config) {
+	write_if_necessary(WWW_ROOT + PATH_V1, `${config}`);
+};
+
+
+function check_umdns_running(ubus) {
+	const result = ubus.call("service", "list", { name: "umdns" });
+	const running_instances = filter(
+		values(result?.umdns?.instances ?? {}),
+		instance => instance.running
+	);
+
+	assert(length(running_instances) > 0, "umdns not running; wizard-config cannot work\n");
+}
+
+
+/* We expose different 'commands' here to aid in testing various parts
+ * of this script independently. For actual use, only client
+ * and server are needed.
+ */
+const COMMANDS = {
+	client: (ubus, uci, dhcp_server_ipv4) => {
+		apply_config(uci, fetch_config(find_service_urls(ubus, dhcp_server_ipv4)));
+		commit_config(ubus, uci);
+	},
+
+	server: (ubus, uci) => {
+		try {
+			write_config(generate_config(uci));
+			umdns_configure(ubus);
+		} catch (e) {
+			serverstop(ubus);
+		}
+	},
+
+	serverstop: (ubus, _uci) => {
+		// Can leave the normal config around, but need to remove the umdns service
+		// config so it stops advertising.
+		serverstop(ubus);
+	},
+
+	// INTERNAL FUNCTIONS for testing
+
+	_apply_config: (_ubus, uci, raw_config) => {
+		// Use standard uci delta_dir so user can see changes.
+		uci = cursor();
+		apply_config(uci, json(raw_config));
+		uci.save();
+		print("Changes are staged. Use uci changes to view.\n");
+	},
+
+	_umdns_configure: (ubus, _uci) => {
+		umdns_configure(ubus);
+		print(`Configured. Other devices should see a _http._tcp service which includes a TXT record: "${UMDNS_TXT_RECORD}".\n`);
+	},
+
+	_generate_config: (_ubus, uci) => {
+		print(generate_config(uci), "\n");
+	},
+
+	_fetch_config: (_ubus, uci, ...urls) => {
+		print(fetch_config(urls));
+	},
+
+	_find_service_urls: (ubus, _uci, dhcp_server_ipv4) => {
+		print(find_service_urls(ubus, dhcp_server_ipv4), "\n");
+	},
+};
+
+
+function main() {
+	const ubus = connect();
+	check_umdns_running(ubus);
+
+	const command = shift(ARGV);
+	if (command in COMMANDS) {
+		COMMANDS[command](ubus, cursor("/etc/config", "/tmp/.wizard_uci"), ...ARGV);
+	} else {
+		if (command) {
+			warn("ERROR: Command not understood: ", command, "\n");
+		} else {
+			warn("ERROR: Must specify a command.\n");
+		}
+		warn(HELP);
+		exit(1);
+	}
+}
+
+
+main();

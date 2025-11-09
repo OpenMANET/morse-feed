@@ -1,0 +1,92 @@
+#!/bin/sh
+
+# In general, drivers automatically bring up a single managed VIF at wlan?
+# (see AUTO_VIF).
+#
+# In our case, since we want netifd to manage everything, we don't want this. In
+# particular, it's a problem if wlan0 comes up when netifd Wi-Fi is completely
+# disabled. This happens on first boot with our EKH devices, as they're
+# disabled by default since we don't know the user's region.
+#
+# But the real reason we need this is to make sure we can use the wlan?
+# numbering for the _morse_ devices, rather than have some other
+# mac80211 device steal it. Once mac80211.sh is loaded by netifd,
+# it'll start using phy?-role? naming, so we need to ensure nothing
+# else grabs the wlan0/wlan1 slots beforehand.
+#
+# This logic lives in netifd-morse because it's effectively part of our morse.sh
+# setup, even though it technically applies to all Wi-Fi interfaces.
+#
+# For brcmfmac (Broadcom FullMAC), the firmware creates a managed-mode
+# wlan interface automatically, but this happens asynchronously and can take
+# some time after the kernel driver is bound. Since we can't prevent its creation
+# and we also cannot delete it, we rename it to avoid conflict. This is done only when
+# the driver is "brcmfmac" and ACTION is "add". For all other drivers, we simply delete
+# any automatically created wlan? interface immediately, as they typically appear synchronously
+# and can be cleanly removed.
+
+wait_for_iface() {
+	local timeout_ms=5000  # total wait time in ms
+	local interval_ms=100
+	local elapsed=0
+
+	while [ "$elapsed" -lt "$timeout_ms" ]; do
+		for f in /sys$DEVPATH/device/net/wlan*; do
+			[ -e "$f" ] && return 0  # Interface appeared
+		done
+		sleep 0.1
+		elapsed=$((elapsed + interval_ms))
+	done
+	return 1  # Timed out
+}
+
+# Check driver name
+driver_path="/sys$DEVPATH/device/driver"
+driver_name=$(basename "$(readlink -f "$driver_path" 2>/dev/null)")
+
+if [ "$driver_name" = "brcmfmac" ]; then
+	# For brcmfmac, wait for firmware-created interface if ACTION is "add"
+	if [ "$ACTION" = "add" ]; then
+		if ! wait_for_iface; then
+			logger -t remove-auto-vif "Timeout waiting for brcmfmac interface"
+		fi
+	fi
+
+	# Only rename interfaces, do not delete
+	for device in /sys$DEVPATH/device/net/wlan*; do
+		[ -e "$device" ] || continue
+
+		iface="$(basename "$device")"
+		logger -t remove-auto-vif "brcmfmac: Renaming iface: $iface"
+
+		# Get MAC address
+		mac=$(cat "/sys/class/net/$iface/address" 2>/dev/null)
+		if [ -z "$mac" ] || [ "$mac" = "00:00:00:00:00:00" ]; then
+			# Generate random suffix
+			hex1=$(printf "%02x" $((RANDOM % 256)))
+			hex2=$(printf "%02x" $((RANDOM % 256)))
+			suffix="$hex1-$hex2"
+			logger -t remove-auto-vif "MAC not available for $iface, using random suffix: $suffix"
+		else
+			suffix=$(echo "$mac" | awk -F: '{print $(NF-1) "-" $NF}')
+		fi
+
+		newname="wlan-$suffix"
+
+		ip link set "$iface" down
+		if ! ip link set "$iface" name "$newname"; then
+			logger -t remove-auto-vif "Failed to rename $iface to $newname"
+		fi
+	done
+
+else
+	# For non-brcmfmac devices: just delete interfaces, no renaming
+	for device in /sys$DEVPATH/device/net/wlan*; do
+		[ -e "$device" ] || continue
+
+		iface="$(basename "$device")"
+		if ! iw dev "$iface" del; then
+			logger -t remove-auto-vif "Failed to delete interface: $iface"
+		fi
+	done
+fi

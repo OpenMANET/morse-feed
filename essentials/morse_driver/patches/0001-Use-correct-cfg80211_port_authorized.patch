@@ -1,0 +1,26 @@
+From fe47095a0a8c483bb014657706cb15f3fa74ba73 Mon Sep 17 00:00:00 2001
+From: Evan Benn <evan.benn@morsemicro.com>
+Date: Wed, 27 Nov 2024 11:50:56 +1100
+Subject: [PATCH] Use correct cfg80211_port_authorized
+
+cfg80211_port_authorized has a new API in mac80211 v6.2. This has been
+backported as of openwrt 23.05.5.
+---
+ wiphy.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+--- a/wiphy.c
++++ b/wiphy.c
+@@ -1917,12 +1917,7 @@ void morse_wiphy_connected(struct morse *mors, const u8 *bssid,
+	morse_wiphy_process_assoc_resp_ies(mors_vif, assoc_resp_ies, assoc_resp_ies_len);
+ 
+ /* TODO: this should only be called if we connected with SAE (or OWE?) */
+-#if (KERNEL_VERSION(6, 2, 0) <= MAC80211_VERSION_CODE) || \
+-	(defined(CONFIG_ANDROID) && (KERNEL_VERSION(6, 1, 25) <= LINUX_VERSION_CODE))
+	cfg80211_port_authorized(ndev, bssid, NULL, 0, GFP_KERNEL);
+-#elif KERNEL_VERSION(4, 15, 0) <= LINUX_VERSION_CODE
+-	cfg80211_port_authorized(ndev, bssid, GFP_KERNEL);
+-#endif
+ 
+	if (!roamed)
+		queue_work(mors->wiphy_wq, &mors_vif->connected_work);

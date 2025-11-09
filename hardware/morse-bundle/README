@@ -1,0 +1,8 @@
+This package contains a number of configuration defaults and scripts
+used by the MorseMicro EVKs. It is a bit of a non-kosher package to
+centralise sometimes necessarily deployed components which don't yet
+have a formal home.
+
+The longer term plan is for this package to disappear, as users
+of the SDK should be able to pick and choose which functionality
+they want without EVK specific configuration leaking in.

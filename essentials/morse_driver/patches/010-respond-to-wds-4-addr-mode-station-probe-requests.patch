@@ -1,0 +1,19 @@
+This is a modified patch based on SW-12998 fixes to the morse_driver 
+(see APP-3418). Modifications removed conditional 
+`KERNEL_VERSION(6, 6, 0) > LINUX_VERSION_CODE` due to morse_openwrt
+backported version mismatches causing compiler errors.
+
+--- a/mac.c
++++ b/mac.c
+@@ -945,11 +945,7 @@ void morse_mac_fill_tx_info(struct morse *mors,
+ 
+ 		if (info->flags & IEEE80211_TX_STATUS_EOSP)
+ 			tx_info->flags |= cpu_to_le32(MORSE_TX_CONF_FLAGS_IMMEDIATE_REPORT);
+-#if KERNEL_VERSION(6, 6, 0) > LINUX_VERSION_CODE
+-	} else if (ieee80211_is_mgmt(fc) && !ieee80211_is_bufferable_mmpdu(fc)) {
+-#else
+ 	} else if (ieee80211_is_mgmt(fc) && !ieee80211_is_bufferable_mmpdu(skb)) {
+-#endif
+ 		/*
+ 		 * Note, this does not handle the special IBSS case where probe responses
+ 		 * to unicast probe requests should be buffered. That will need to be added

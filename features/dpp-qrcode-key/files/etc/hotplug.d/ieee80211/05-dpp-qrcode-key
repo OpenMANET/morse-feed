@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+# Copyright (C) 2021-2023 Morse Micro Pty Ltd. All rights reserved.
+#
+# This script generates the DPP qrcode when the morse chip is inserted.
+# The DPP qrcode is a combination of the MAC address and the public key.
+
+DPP_QRCODE_KEY_FILE=/etc/dpp_key.pem
+DPP_QRCODE_SVG=/www/dpp_qrcode.svg
+
+if [ "$ACTION" != add ]; then
+	exit
+fi
+
+if ! readlink -f "/sys/${DEVPATH}/device/driver" | grep -q '/morse' ; then
+	exit
+fi
+
+persistent_vars_storage() {
+	if which persistent_vars_storage.sh > /dev/null; then
+		persistent_vars_storage.sh "$@"
+	fi
+}
+
+if [ ! -e "$DPP_QRCODE_KEY_FILE" ]; then
+	dpp_priv_key=$(persistent_vars_storage READ dpp_priv_key)
+
+	if [ -z "$dpp_priv_key" ]; then
+		logger -p 4 -t dpp-qrcode-key "Generating new DPP private key as it wasn't found in persistent storage"
+		# We strip the BEGIN EC PRIVATE KEY and the newlines since this is how the key
+		# is stored in persistent storage.
+		dpp_priv_key=$(openssl ecparam -genkey -name prime256v1 -noout -outform PEM \
+		               | sed '/^---/d' | tr -d '\n')
+		# This may fail (e.g. if no persistent_vars_storage is writable). This is ok until
+		# a factory reset, as at least we'll cache the key in $DPP_QRCODE_KEY_FILE
+		persistent_vars_storage WRITE dpp_priv_key "$dpp_priv_key"
+	fi
+
+	echo "-----BEGIN EC PRIVATE KEY-----" > "$DPP_QRCODE_KEY_FILE"
+	echo "$dpp_priv_key"                  >> "$DPP_QRCODE_KEY_FILE"
+	echo "-----END EC PRIVATE KEY-----"   >> "$DPP_QRCODE_KEY_FILE"
+fi
+
+MACADDRESS=$(cat /sys/${DEVPATH}/macaddress | sed 's/://g')
+
+if [ -z "$MACADDRESS" ]; then
+	logger -p 3 -t dpp-qrcode-key "Unable generate qrcode as no MAC address found on morse phy"
+	exit
+fi
+
+# Generate the public key string from the private key.
+# Unfortunately, there is no way to quiet the 'read EC key' messages without redirecting stderr.
+PUBLICKEY=$(openssl ec -in "$DPP_QRCODE_KEY_FILE" -pubout -conv_form compressed -outform PEM \
+            2> /dev/null | sed '/^---/d' | tr -d '\n')
+DPP_QRCODE_SVG_TMP=$(mktemp)
+qrencode --inline --8bit --type=SVG --output="$DPP_QRCODE_SVG_TMP" "DPP:V:2;M:$MACADDRESS;K:$PUBLICKEY;;"
+if ! cmp -s "$DPP_QRCODE_SVG_TMP" "$DPP_QRCODE_SVG"; then
+	logger -t dpp-qrcode-key "Updating $DPP_QRCODE_SVG"
+	cp "$DPP_QRCODE_SVG_TMP" "$DPP_QRCODE_SVG"
+	chmod a+r "$DPP_QRCODE_SVG"
+fi
+rm "$DPP_QRCODE_SVG_TMP"

@@ -1,0 +1,95 @@
+#!/bin/sh
+
+# Hotplug handler for Morse Wi-Fi devices
+#
+# This script manages the dynamic addition and removal of Morse Wi-Fi devices
+# by responding to hotplug events triggered by the system. It ensures that the
+# UCI wireless configuration remains in sync with the actual hardware state.
+#
+# On device insertion (`ACTION=add`):
+#   * Checks if the inserted PHY is already registered in the UCI wireless state.
+#   * Verifies the device is a Morse radio (via sysfs driver and UCI configuration).
+#   * If the device was previously disabled due to removal, it re-enables it in UCI
+#     and reconfigures the wireless subsystem.
+#
+# On device removal (`ACTION=remove`):
+#   * Confirms the removed PHY is registered and enabled in UCI.
+#   * Matches the system path against known Morse devices in UCI.
+#   * If matched, disables the device in UCI and marks it as removed by hotplug.
+#
+# This maintains accurate system configuration based on the presence
+# or absence of Morse Wi-Fi devices.
+
+. /lib/functions.sh
+
+handle_wireless_add() {
+	local wifi_device="$1"
+	local phy=$DEVICENAME
+
+	config_get device_type "$wifi_device" type
+	[ "$device_type" != "morse" ] && return
+
+	local device_path="$(iwinfo dot11ah path "$phy")"
+	config_get path $wifi_device path
+
+	if [ -n "$path" ] && [ "$path" = "$device_path" ]; then
+		config_get disabled $wifi_device disabled
+		config_get disabled_by_hotplug $wifi_device disabled_by_hotplug
+		#Re-enable Morse device only if it was disabled by the hotplug script
+		if [ "$disabled_by_hotplug" = "1" ] && [ "$disabled" = "1" ]; then
+			logger -t morse-wifi-re-enable "Morse Wi-Fi device: $wifi_device is inserted, hence enable it"
+			uci set wireless.$wifi_device.disabled=0
+			uci delete wireless.$wifi_device.disabled_by_hotplug
+			uci commit wireless
+		fi
+
+	fi
+}
+
+handle_wireless_remove() {
+	local wifi_device="$1"
+
+	config_get device_type "$wifi_device" type
+	[ "$device_type" != "morse" ] && return
+
+	config_get device_path "$wifi_device" path
+	# Remove optional 'platform/' & 'devices/' prefixes for consistent comparison
+	device_path="${device_path##*platform/}"
+	device_path="${device_path##*devices/}"
+
+	# Normalize DEVPATH to compare against UCI config
+	DEVPATH="${DEVPATH##*platform/}"
+	DEVPATH="${DEVPATH##*devices/}"
+	DEVPATH="${DEVPATH%%/ieee80211/*}"
+
+	if [ "$device_path" = "$DEVPATH" ]; then
+		config_get disabled $wifi_device disabled
+		# Disable only if the device is enabled by user
+		if [ -z "$disabled" ] || [ "$disabled" = "0" ]; then
+			logger -t morse-wifi-re-enable "Morse Wi-Fi device: $wifi_device is removed, hence disable it"
+			uci set wireless."$wifi_device".disabled="1"
+			uci set wireless."$wifi_device".disabled_by_hotplug="1"
+			uci commit wireless
+		fi
+	fi
+}
+
+phy="$DEVICENAME"
+phy_found="$(uci_get_state wireless "_$phy")"
+config_load wireless
+
+if [ "$ACTION" = "add" ]; then
+	# Proceed only if the device is identified as a Morse device during Add
+	basename "$(readlink -f "/sys/class/ieee80211/$phy/device/driver/")" | grep '^morse_' || return
+	if [ -z "$phy_found" ]; then
+		config_foreach handle_wireless_add wifi-device
+		/sbin/wifi up
+	fi
+fi
+
+if [ "$ACTION" = "remove" ]; then
+	if [ -n "$phy_found" ]; then
+		config_foreach handle_wireless_remove wifi-device
+		/sbin/wifi up
+	fi
+fi

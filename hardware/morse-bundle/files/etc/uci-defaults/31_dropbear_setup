@@ -1,0 +1,20 @@
+# As with password, this must happen after the uci-defaults for the uboot env are loaded.
+# See also /morse/scripts/save_dropbear_setup.sh
+
+mkdir -p /etc/dropbear
+chmod 700 /etc/dropbear
+
+# Do not change the password if this is an upgrade.
+if [ -f /sysupgrade.tgz ]; then
+    exit 0
+fi
+
+authorized_keys="$(persistent_vars_storage.sh READ dropbear_authorized_keys)" &&
+	echo "$authorized_keys" > /etc/dropbear/authorized_keys
+
+for f in /etc/dropbear/dropbear_ed25519_host_key /etc/dropbear/dropbear_rsa_host_key; do
+	v="$(persistent_vars_storage.sh READ "$(basename "$f")")" &&
+		echo "$v" | base64 -d > "$f"
+done
+
+exit 0

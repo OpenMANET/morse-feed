@@ -1,0 +1,154 @@
+sysfs: list available countries based on OTP/BCF
+
+Accessible via something like:
+
+root@halowlink1-f4a1:~# cat /sys/class/ieee80211/phy2/device/countries
+US AU CA
+
+diff --git a/firmware.c b/firmware.c
+index 7f6232ac..6a516a49 100644
+--- a/firmware.c
++++ b/firmware.c
+@@ -254,6 +254,8 @@ static int morse_bcf_load(struct morse *mors, const struct firmware *bcf,
+ 			  unsigned int bcf_address)
+ {
+ 	int i;
++	int r;
++	int regdom_index;
+ 	size_t reglen;
+ 	int ret = 0;
+ 	morse_elf_ehdr ehdr;
+@@ -283,6 +285,64 @@ static int morse_bcf_load(struct morse *mors, const struct firmware *bcf,
+ 
+ 	sh_strs = (const char *)bcf->data + sh_strtab.sh_offset;
+ 
++	/* Load available regdoms */
++	if (mors->regdoms) {
++		/* It's possible for this function to be run more than once
++		 * if the firmware load is retried
++		 */
++		devm_kfree(mors->dev, mors->regdoms);
++		mors->regdoms = NULL;
++		mors->num_regdoms = 0;
++	}
++
++	if (test_bit(MORSE_STATE_FLAG_REGDOM_SET_BY_OTP, &mors->state_flags)) {
++		/* If OTP set, just report this (even if BCF does not define
++		 * this regdom); other places will show appropriate errors
++		 */
++		mors->num_regdoms = 1;
++	} else {
++		/* Set regdoms based on available regdoms in BCF */
++		mors->num_regdoms = 0;
++		for (i = 0; i < ehdr.e_shnum; i++) {
++			if (get_section_header(bcf->data, &ehdr, &shdr, i) != 0)
++				continue;
++
++			if (strncmp(sh_strs + shdr.sh_name, reg_prefix, reglen) != 0)
++				continue;	/* Not a regdom section */
++
++			mors->num_regdoms += 1;
++		}
++	}
++
++	if (mors->num_regdoms) {
++		mors->regdoms = devm_kmalloc_array(mors->dev, mors->num_regdoms,
++						   sizeof(*mors->regdoms), GFP_KERNEL);
++		if (!mors->regdoms) {
++			devm_kfree(mors->dev, bcf_buf);
++			return -ENOMEM;
++		}
++
++		if (test_bit(MORSE_STATE_FLAG_REGDOM_SET_BY_OTP, &mors->state_flags)) {
++			r = strscpy(mors->regdoms[0], mors->country, sizeof(*mors->regdoms));
++			if (r != 2)
++				MORSE_WARN(mors, "Bad country code length\n");
++		} else {
++			for (regdom_index = 0, i = 0; i < ehdr.e_shnum; i++) {
++				if (get_section_header(bcf->data, &ehdr, &shdr, i) != 0)
++					continue;
++
++				if (strncmp(sh_strs + shdr.sh_name, reg_prefix, reglen) != 0)
++					continue;	/* Not a regdom section */
++
++				r = strscpy(mors->regdoms[regdom_index],
++					    sh_strs + shdr.sh_name + 8, 3);
++				if (r != 2)
++					MORSE_WARN(mors, "Bad country code length\n");
++				regdom_index += 1;
++			}
++		}
++	}
++
+ 	/* Download board config section to firmware */
+ 	for (i = 0; i < ehdr.e_shnum; i++) {
+ 		if (get_section_header(bcf->data, &ehdr, &shdr, i) != 0)
+diff --git a/morse.h b/morse.h
+index eb46cc2c..c4ef700d 100644
+--- a/morse.h
++++ b/morse.h
+@@ -1196,6 +1196,9 @@ struct morse {
+ 	char *board_serial;
+ 	int board_id;
+ 
++	char (*regdoms)[3];
++	int num_regdoms;
++
+ 	/* Stored Channel Information, sta_type, enc_mode, RAW */
+ 	struct morse_custom_configs custom_configs;
+ 
+diff --git a/sysfs.c b/sysfs.c
+index 3559dbef..62417ea6 100644
+--- a/sysfs.c
++++ b/sysfs.c
+@@ -29,6 +29,34 @@ static ssize_t board_type_show(struct device *dev,
+ 
+ static DEVICE_ATTR_RO(board_type);
+ 
++static ssize_t countries_show(struct device *dev,
++			      struct device_attribute *attr,
++			      char *buf)
++{
++	struct morse *mors = dev_get_drvdata(dev);
++	int i, len = 0;
++
++	if (!mors || !mors->regdoms || mors->num_regdoms <= 0)
++		return -EINVAL;
++
++	for (i = 0; i < mors->num_regdoms; i++) {
++#if KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE
++		len += sysfs_emit_at(buf, len, "%s ", mors->regdoms[i]);
++#else
++		len += snprintf(buf + len, PAGE_SIZE - len, "%s ", mors->regdoms[i]);
++		if (len >= PAGE_SIZE)
++			break;
++#endif
++	}
++
++	if (len > 0 && buf[len - 1] == ' ')
++		buf[len - 1] = '\n';
++
++	return len;
++}
++
++static DEVICE_ATTR_RO(countries);
++
+ int morse_sysfs_init(struct morse *mors)
+ {
+ 	int ret;
+@@ -37,10 +65,15 @@ int morse_sysfs_init(struct morse *mors)
+ 	if (ret < 0)
+ 		MORSE_ERR(mors, "failed to create sysfs file board_type");
+ 
++	ret = device_create_file(mors->dev, &dev_attr_countries);
++	if (ret < 0)
++		MORSE_ERR(mors, "failed to create sysfs file countries");
++
+ 	return ret;
+ }
+ 
+ void morse_sysfs_free(struct morse *mors)
+ {
+ 	device_remove_file(mors->dev, &dev_attr_board_type);
++	device_remove_file(mors->dev, &dev_attr_countries);
+ }
