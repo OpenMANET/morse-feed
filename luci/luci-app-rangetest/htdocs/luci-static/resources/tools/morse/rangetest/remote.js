@@ -1,13 +1,22 @@
 'use strict';
 
-/* globals baseclass rpc */
+/* globals baseclass rpc errorUtils */
 'require baseclass';
 'require rpc';
+'require tools.morse.rangetest.errorutils as errorUtils';
 
 var remoteRequest = rpc.declare({
-	object: 'rangetest-remote-rpc',
-	method: 'request',
-	params: ['uri', 'body'],
+	object: 'rangetest',
+	method: 'remote_device_call',
+	params: ['target', 'rpc_id', 'session_id', 'method', 'args'],
+	nobatch: true,
+});
+
+var remoteLogin = rpc.declare({
+	object: 'rangetest',
+	method: 'remote_device_login',
+	params: ['target', 'password'],
+	nobatch: true,
 });
 
 var RemoteRpcClass = rpc.constructor.extend({
@@ -34,7 +43,7 @@ var RemoteRpcClass = rpc.constructor.extend({
 	__currentTime: () => Math.floor(Date.now() / 1000),
 
 	__login: function () {
-		return remoteRequest(this.remoteRpcBaseUrl, this.message);
+		return remoteLogin(this.remoteRpcIpAddress, this.message.params[3].password);
 	},
 
 	__checkLogin: function () {
@@ -49,21 +58,12 @@ var RemoteRpcClass = rpc.constructor.extend({
 		return Promise.resolve();
 	},
 
-	__call: async function (method, params) {
-		if (this.remoteRpcBaseUrl === undefined) {
-			throw new Error('No URL set for remote RPC call!');
+	__call: async function (method, params, requiresLogin = true) {
+		if (requiresLogin) {
+			await this.__checkLogin();
 		}
 
-		await this.__checkLogin();
-
-		const req = {
-			jsonrpc: '2.0',
-			id: 0,
-			method: 'call',
-			params: [this.remoteRpcSessionId, 'rangetest', method, params],
-		};
-
-		const rpcResponse = await remoteRequest(this.remoteRpcBaseUrl, req);
+		const rpcResponse = await remoteRequest(this.remoteRpcIpAddress, 0, this.remoteRpcSessionId, method, params);
 		return this.__parseCallReply(rpcResponse);
 	},
 
@@ -73,10 +73,12 @@ var RemoteRpcClass = rpc.constructor.extend({
 		// Fails on bad URLs, bad endpoints
 		if (Number.isInteger(response)) {
 			const message = rpc.getStatusText(response) || 'Unknown';
-			const errorMessage = isAuthCheck
-				? `Login to ${this.remoteRpcBaseUrl} failed! Check the remote device is online.`
-				: `Request to ${this.remoteRpcBaseUrl} failed with: ${message} (${response})`;
-			throw new Error(errorMessage);
+
+			if (isAuthCheck) {
+				throw new Error(`Unable to reach ${this.remoteRpcBaseUrl}, please ensure the device is reachable on the network.`, { cause: 'offline' });
+			} else {
+				throw new Error(`Request to ${this.remoteRpcBaseUrl} failed with: ${message} (${response})`);
+			}
 		}
 
 		// RPC error
@@ -92,14 +94,14 @@ var RemoteRpcClass = rpc.constructor.extend({
 			// Certain commands use the 'Command OK' (0) status code
 			if (returnCode === 0) {
 				return response.result[0];
+			} else if (isAuthCheck && returnCode === 6) {
+				throw new Error(`Login attempt to ${this.remoteRpcBaseUrl} failed, please try again with a different password.`, { cause: 'auth' });
+			} else {
+				throw new Error(`Request to ${this.remoteRpcBaseUrl} failed with UBUS code: ${returnCode}`);
 			}
-			if (isAuthCheck && returnCode === 6) {
-				throw new Error(`Login attempt to ${this.remoteRpcBaseUrl} failed, please try a different password`);
-			}
-			throw new Error(`Request to ${this.remoteRpcBaseUrl} failed with UBUS code: ${returnCode}`);
 		}
 
-		return response.result[1];
+		return errorUtils.catchRangetestErrors(response.result[1]);
 	},
 
 	backgroundIperf3Server: async function () {
@@ -108,6 +110,10 @@ var RemoteRpcClass = rpc.constructor.extend({
 
 	getBackground: async function (id) {
 		return this.__call('get_background', { id: id });
+	},
+
+	terminateBackground: async function (id) {
+		return this.__call('terminate_background', { id: id });
 	},
 
 	iwStationDump: async function () {
@@ -124,6 +130,10 @@ var RemoteRpcClass = rpc.constructor.extend({
 
 	ipLink: async function () {
 		return this.__call('ip_link', {});
+	},
+
+	info: async function () {
+		return this.__call('info', {}, false);
 	},
 
 	/**
@@ -146,6 +156,26 @@ var RemoteRpcClass = rpc.constructor.extend({
 	 */
 	setSessionID: function (sid) {
 		this.remoteRpcSessionId = sid;
+	},
+
+	/**
+	 * Returns the current IP address.
+	 *
+	 * @returns {string}
+	 * Returns the IP address of the remote device.
+	 */
+	getIpAddress: function () {
+		return this.remoteRpcIpAddress;
+	},
+
+	/**
+	 * Set the IP address to use.
+	 *
+	 * @param {string} ipAddress
+	 * Sets the IP address of the remote device.
+	 */
+	setIpAddress: function (ipAddress) {
+		this.remoteRpcIpAddress = ipAddress;
 	},
 
 	/**
@@ -185,6 +215,7 @@ var RemoteRpcClass = rpc.constructor.extend({
 var RemoteDeviceFactory = baseclass.extend({
 	load: (url, password) => {
 		var remoteRpc = new RemoteRpcClass();
+		remoteRpc.setIpAddress(url);
 		remoteRpc.setBaseURL('http://' + url + '/ubus/');
 		remoteRpc.setPassword(password);
 		return remoteRpc;

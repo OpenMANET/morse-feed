@@ -136,13 +136,12 @@ const ubusStatus = {
 
 // just providing some default messages for the status codes coming from ubus.
 // An alternative string may be used throughout the UI to provide more context.
-// These may end up being redundant. There's probably a cleaner way to do this, but
-// I'm happy to leave it like this for now
+// For errors, these are provided as additional context to the backend error message.
 const defaultMessages = {
-	ArgumentError: _('Invalid arguments passed to ubus'),
-	BoardNotFoundError: _('No images found for the current device'),
-	DownloadError: _('Download failed'),
-	HTTPError: _('Couldn\'t access the MorseMicro image server'),
+	ArgumentError: _('This is an internal error and may be due to configuration modifications. Please reset your device to factory defaults and try again or upgrade manually. If the problem persists, consider contacting Morse Micro support.'),
+	BoardNotFoundError: _('This may happen if the device is not recognized by the server. Please verify that your device is supported and try again.'),
+	DownloadError: _('Firmware failures can occur when there your device has intermittent internet connection or the upgrade server is experiencing failures. Please ensure that your Morse Micro device is connected to stable internet and try again.'),
+	HTTPError: _('This could be due to a network issue or server unavailability. Please check your internet connection and/or try again later.'),
 	SHAMismatchError: _('sha256sum does not match'),
 	UpdateImageNotFoundError: _('No image found'),
 	DownloadStartedOK: _('Download started'),
@@ -339,10 +338,10 @@ return view.extend({
 
 		switch (search.status) {
 			case ubusStatus.HTTPError:
-				this.setState(states.ERROR, defaultMessages[ubusStatus.HTTPError] + ': ' + _('HTTP Request failed with code %s.').format(search.code));
+				this.setState(states.ERROR, `${search.error}. ${defaultMessages[ubusStatus.HTTPError]} (${search.code})`);
 				return null;
 			case ubusStatus.UpdateImageNotFoundError:
-				this.setState(states.ERROR, defaultMessages[ubusStatus.UpdateImageNotFoundError]);
+				this.setState(states.ERROR, `${search.error}. ${defaultMessages[ubusStatus.UpdateImageNotFoundError]}`);
 				return null;
 			case ubusStatus.NoUpdateNeededOK:
 				this.setState(states.UPDATED, defaultMessages[ubusStatus.NoUpdateNeededOK]);
@@ -394,7 +393,11 @@ return view.extend({
 			query = await callUpgradeQuery();
 		} catch (e) {
 			console.error(e);
-			this.setState(states.ERROR, _('Configuration error occurred. Can not use upgrade service'));
+			this.setState(states.ERROR, _(
+				'Configuration error detected. The upgrade service could'
+				+ ' not be started due to a missing or invalid system setting.'
+				+ ' Please check your device configuration or perform a factory reset before re-trying.'),
+			);
 		}
 
 		let stat = await callUpgradeStat();
@@ -415,7 +418,7 @@ return view.extend({
 				this.setState(states.DOWNLOADREADY, _('New firmware version available: %s').format(this.search.version) + rootfs_warn);
 				return;
 			case ubusStatus.DownloadError:
-				this.setState(states.ERROR, _('Download failed with code %s.').format(stat.code));
+				this.setState(states.ERROR, `${stat.error}. ${defaultMessages[ubusStatus.DownloadError]} (${stat.code})`);
 				return;
 			default:
 				break;

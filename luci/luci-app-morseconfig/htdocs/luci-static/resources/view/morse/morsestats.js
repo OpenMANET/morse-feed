@@ -97,7 +97,7 @@ var MorseStats = view.extend({
 			E('h2', {}, _('Morse Statistics')),
 			table,
 			E('h3', { id: 'syslog_title' }, ''),
-			E('textarea', { id: 'syslog', style: 'font-size:12px;font-family:monospace;', readonly: 'readonly', wrap: 'off', rows: 50 },
+			E('textarea', { id: 'syslog', style: 'font-size:12px;', readonly: 'readonly', wrap: 'off', rows: 50 },
 				[]),
 		]);
 

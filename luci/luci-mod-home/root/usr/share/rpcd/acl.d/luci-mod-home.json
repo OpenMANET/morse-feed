@@ -7,10 +7,11 @@
 			},
 			"ubus": {
 				"system": [ "board", "info" ]
-			}
+			},
+			"uci": [ "system", "luci", "firewall", "dhcp", "network", "wireless", "mesh11sd", "prplmesh", "matter", "smart_manager" ]
 		},
 		"write": {
-			"uci": [ "dhcp" ]
+			"uci": [ "system", "luci", "firewall", "dhcp", "network", "wireless", "mesh11sd", "prplmesh", "matter", "smart_manager" ]
 		}
 	},
 
@@ -57,5 +58,14 @@
 				"Device.WiFi.DataElements": [ "_get" ]
 			}
 		}
+	},
+
+	"luci-mod-home-index-mesh11s": {
+	"description": "Access to mesh11s get_topology",
+	"read": {
+		"ubus": {
+		"mesh11s": [ "get_topology" ]
+		}
+	}
 	}
 }

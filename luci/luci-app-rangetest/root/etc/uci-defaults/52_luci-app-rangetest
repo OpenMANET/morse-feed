@@ -19,7 +19,7 @@ delete_rangetest_mdns_txt_record() {
 # the makefile PKG_VERSION variable given that it is managed
 # by luci.mk and you cannot override makefile hooks in luci
 # packages to run replacement commands like sed.
-API_VERSION="0.1.0"
+API_VERSION="1.0.1"
 
 # Delete any previous versions in case of upgrade
 config_load uhttpd

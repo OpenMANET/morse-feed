@@ -30,7 +30,7 @@ document.querySelector('head').appendChild(E('link', {
 	href: L.resourceCacheBusted('view/morse/css/morseapwizard.css'),
 }));
 
-// This wizard is only designed for Artini's AP mode. If we detect an Extender mode
+// This wizard is only designed for HaLowLink 1's AP mode. If we detect an Extender mode
 // situation, give the user some hints.
 const EXTENDER_MODE_MESSAGE = _(`
 <p>This device is currently setup as an Extender (shown by a solid aqua Status LED),
@@ -127,7 +127,7 @@ return view.extend({
 
 		const wifiApsDisabled = {};
 		for (const wifiDevice of wifiDevices) {
-			wifiApsDisabled[wifiDevice.name] = uci.get('wireless', wifiDevice.apInterfaceName, 'disabled');
+			wifiApsDisabled[wifiDevice.name] = uci.get('wireless', wifiDevice.apSectionName, 'disabled');
 		}
 
 		wizard.resetUci();
@@ -142,8 +142,8 @@ return view.extend({
 
 		// Re-enable any non-HaLow radios if our reset disabled.
 		for (const wifiDevice of wifiDevices) {
-			if (uci.get('wireless', wifiDevice.apInterfaceName)) {
-				uci.set('wireless', wifiDevice.apInterfaceName, 'disabled', wifiApsDisabled[wifiDevice.name]);
+			if (uci.get('wireless', wifiDevice.apSectionName)) {
+				uci.set('wireless', wifiDevice.apSectionName, 'disabled', wifiApsDisabled[wifiDevice.name]);
 			}
 		}
 
@@ -154,6 +154,15 @@ return view.extend({
 		}
 		uci.set('wireless', morseInterfaceName, 'mode', 'ap');
 		uci.set('wireless', morseInterfaceName, 'wds', '1');
+		if (!uci.get('wireless', morseInterfaceName, 'ssid')) {
+			uci.set('wireless', morseInterfaceName, 'ssid', morseuci.getDefaultSSID());
+		}
+		// Clear mesh_id to avoid confusion.
+		uci.unset('wireless', morseInterfaceName, 'mesh_id');
+
+		if (!uci.get('wireless', morseInterfaceName, 'key')) {
+			uci.set('wireless', morseInterfaceName, 'key', morseuci.getDefaultWifiKey());
+		}
 
 		// lan is the primary local interface unless overridden
 		// by wlan below if the network mode is set to bridged.
@@ -167,9 +176,10 @@ return view.extend({
 			case 'standard':
 				morseuci.forceBridge('lan', 'br-lan');
 				uci.set('system', 'led_halow', 'dev', 'wlan0');
+				uci.set('system', 'led_80211n_ap', 'dev', 'phy0-ap0');
 				uci.set('wireless', morseInterfaceName, 'encryption', 'sae');
 				for (const wifiDevice of wifiDevices) {
-					uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'psk2');
+					uci.set('wireless', wifiDevice.apSectionName, 'encryption', 'psk2');
 				}
 				break;
 			case 'prplmesh':
@@ -204,13 +214,13 @@ return view.extend({
 					}
 					uci.set('system', 'led_80211n_ap', 'dev', `wl${i}-prpl`);
 					uci.set('prplmesh', wifiDevice.name, 'hostap_iface', `wl${i}-prpl`);
-					uci.set('wireless', wifiDevice.apInterfaceName, 'ifname', `wl${i}-prpl`);
-					uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'sae-mixed');
-					uci.set('wireless', wifiDevice.apInterfaceName, 'bss_transition', '1');
-					uci.set('wireless', wifiDevice.apInterfaceName, 'multi_ap', '2');
-					uci.set('wireless', wifiDevice.apInterfaceName, 'wps_virtual_push_button', '1');
-					uci.set('wireless', wifiDevice.apInterfaceName, 'wps_independent', '0');
-					uci.set('wireless', wifiDevice.apInterfaceName, 'auth_cache', '0');
+					uci.set('wireless', wifiDevice.apSectionName, 'ifname', `wl${i}-prpl`);
+					uci.set('wireless', wifiDevice.apSectionName, 'encryption', 'sae-mixed');
+					uci.set('wireless', wifiDevice.apSectionName, 'bss_transition', '1');
+					uci.set('wireless', wifiDevice.apSectionName, 'multi_ap', '2');
+					uci.set('wireless', wifiDevice.apSectionName, 'wps_virtual_push_button', '1');
+					uci.set('wireless', wifiDevice.apSectionName, 'wps_independent', '0');
+					uci.set('wireless', wifiDevice.apSectionName, 'auth_cache', '0');
 				});
 
 				break;
@@ -232,14 +242,17 @@ return view.extend({
 				if (!uci.get('wireless', morseMeshInterfaceName, 'mesh_id')) {
 					uci.set('wireless', morseMeshInterfaceName, 'mesh_id', uci.get('wireless', morseInterfaceName, 'ssid'));
 				}
+				// Clear ssid to avoid confusion.
+				uci.unset('wireless', morseMeshInterfaceName, 'ssid');
 				if (!uci.get('wireless', morseMeshInterfaceName, 'key')) {
 					uci.set('wireless', morseMeshInterfaceName, 'key', uci.get('wireless', morseInterfaceName, 'key'));
 				}
 
 				for (const wifiDevice of wifiDevices) {
-					uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'psk2');
+					uci.set('wireless', wifiDevice.apSectionName, 'encryption', 'psk2');
 				}
 				uci.set('system', 'led_halow', 'dev', 'wlan0');
+				uci.set('system', 'led_80211n_ap', 'dev', 'phy0-ap0');
 				break;
 		}
 
@@ -300,18 +313,18 @@ return view.extend({
 
 				// Set WAN devices
 				for (const wifiDevice of wifiDevices) {
-					if (uci.get('wireless', wifiDevice.staInterfaceName)) {
-						uci.unset('wireless', wifiDevice.staInterfaceName, 'disabled');
+					if (uci.get('wireless', wifiDevice.staSectionName)) {
+						uci.unset('wireless', wifiDevice.staSectionName, 'disabled');
 					} else {
-						uci.add('wireless', 'wifi-iface', wifiDevice.staInterfaceName);
+						uci.add('wireless', 'wifi-iface', wifiDevice.staSectionName);
 					}
-					uci.set('wireless', wifiDevice.staInterfaceName, 'device', wifiDevice.name);
-					uci.set('wireless', wifiDevice.staInterfaceName, 'mode', 'sta');
-					uci.set('wireless', wifiDevice.staInterfaceName, 'network', 'wan');
-					if (!uci.get('wireless', wifiDevice.staInterfaceName, 'ssid')) {
+					uci.set('wireless', wifiDevice.staSectionName, 'device', wifiDevice.name);
+					uci.set('wireless', wifiDevice.staSectionName, 'mode', 'sta');
+					uci.set('wireless', wifiDevice.staSectionName, 'network', 'wan');
+					if (!uci.get('wireless', wifiDevice.staSectionName, 'ssid')) {
 						// Without setting something here, if no SSID is specified
 						// wpa_supplicant likes to connect to any open network.
-						uci.set('wireless', wifiDevice.staInterfaceName, 'encryption', 'psk2');
+						uci.set('wireless', wifiDevice.staSectionName, 'encryption', 'psk2');
 					}
 				}
 				break;
@@ -332,11 +345,11 @@ return view.extend({
 		`);
 		const WIFI_UPLINK_INFO = _(`
 			After saving a 2.4 GHz Wi-Fi uplink configuration, you will need to connect to the correct
-			network on on the Home page. Find the Uplink card, click on the "Disconnected" cross, then
+			network on the Home page. Find the Uplink card, click on the "Disconnected" cross, then
 			set the SSID and password.
 		`);
 
-		const shouldShowWifi24UplinkInfo = () => (
+		const shouldShowWifi24UplinkInfo = (
 			(this.data.wizard.device_mode !== 'prplmesh' && this.data.wizard.network_mode === 'routed_wifi24')
 			|| (this.data.wizard.device_mode === 'prplmesh' && this.data.wizard.network_mode_prplmesh === 'routed_wifi24')
 		);

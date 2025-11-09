@@ -1,0 +1,96 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: luci/luci-theme-morseargon/htdocs/luci-static/resources/menu-morseargon.js:248
+msgid "Advanced Config"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:239
+msgid "BCF may not be appropriate!"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:229
+msgid "Go to password configuration..."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:215
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:222
+msgid "Go to wireless configuration..."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/sysauth.htm:41
+msgid "Invalid username and/or password! Please try again."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:258
+msgid "JavaScript required!"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/sysauth.htm:55
+msgid "Log in"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:220
+msgid ""
+"Morse device using FullMAC firmware - only Client/Station mode will work!"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:213
+msgid "Morse device using Thin LMAC firmware - only AP mode will work!"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:227
+msgid "No password set!"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:207
+msgid "Region not set!"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:240
+msgid ""
+"The BCF file on this device must be specified via UCI as the board type "
+"isn't set in the OTP bits. Currently, your HaLow device is using the non-"
+"functional failsafe BCF."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:228
+msgid ""
+"There is no password set on this router. Please configure a root password to "
+"protect the web interface."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:208
+msgid ""
+"There is no region set for your morse interface. Please set your region "
+"first."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:249
+msgid ""
+"This device is a virtual wire kit. Saving any configuration will disable "
+"virtual wire mode. A factory reset will restore virtual wire mode."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:246
+msgid "Virtual Wire Device"
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:259
+msgid ""
+"You must enable JavaScript in your browser or LuCI will not work properly."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:221
+msgid ""
+"Your Morse device is using FullMAC firmware, which is an optimisation for "
+"client/station mode where processing is offloading to the Morse chip. This "
+"is useful in highly power constrained situations or if association should be "
+"maintained when the host processor is off."
+msgstr ""
+
+#: luci/luci-theme-morseargon/luasrc/view/themes/morseargon/header.htm:214
+msgid ""
+"Your Morse device is using Thin LMAC firmware, which is an optimisation for "
+"AP mode to support large numbers of clients/stations."
+msgstr ""

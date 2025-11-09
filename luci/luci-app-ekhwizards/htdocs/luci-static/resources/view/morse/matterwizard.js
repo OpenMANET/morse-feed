@@ -149,14 +149,14 @@ return wizard.AbstractWizardView.extend({
 		}
 
 		for (const wifiDevice of wifiDevices) {
-			uci.set('wireless', wifiDevice.apInterfaceName, 'device', wifiDevice.name);
-			uci.set('wireless', wifiDevice.apInterfaceName, 'mode', 'ap');
+			uci.set('wireless', wifiDevice.apSectionName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.apSectionName, 'mode', 'ap');
 
-			if (!uci.get('wireless', wifiDevice.staInterfaceName)) {
-				uci.add('wireless', 'wifi-iface', wifiDevice.staInterfaceName);
+			if (!uci.get('wireless', wifiDevice.staSectionName)) {
+				uci.add('wireless', 'wifi-iface', wifiDevice.staSectionName);
 			}
-			uci.set('wireless', wifiDevice.staInterfaceName, 'device', wifiDevice.name);
-			uci.set('wireless', wifiDevice.staInterfaceName, 'mode', 'sta');
+			uci.set('wireless', wifiDevice.staSectionName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.staSectionName, 'mode', 'sta');
 		}
 
 		const morseDeviceSection = map.section(form.NamedSection, morseDeviceName, 'wifi-device');

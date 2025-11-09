@@ -50,7 +50,7 @@ search () {
 		cat <<-JSON_EOF
 		{
 		    "status": "HTTPError",
-		    "error": "Couldn't access $REPO/$target/profiles.json",
+		    "error": "Could not reach upgrade server at '$REPO/$target/profiles.json'",
 		    "code": "$target_status"
 		}
 		JSON_EOF
@@ -92,7 +92,7 @@ search () {
 		cat <<-JSON_EOF
 		{
 		    "status": "UpdateImageNotFoundError",
-		    "error": "No images found for $board_name"
+		    "error": "No images found on upgrade server for $board_name"
 		}
 		JSON_EOF
 		return;
@@ -139,7 +139,7 @@ download () {
 		cat <<-JSON_EOF
 		{
 		    "status": "ArgumentError",
-		    "error": "Download target and sha256sum required"
+		    "error": "Correct target and sha256sum not provided to download service",
 		}
 		JSON_EOF
 		return;
@@ -196,7 +196,7 @@ stat () {
 		cat <<-JSON_EOF
 		{
 		    "status": "DownloadError",
-		    "error": "Download failed",
+		    "error": "Firmware image download failed",
 		    "code": "$status",
 		    "process": "$pid"
 		}
@@ -221,7 +221,7 @@ verify () {
 		cat <<-JSON_EOF
 		{
 		    "status": "ArgumentError",
-		    "message": "sha256 sum required!",
+		    "error": "Image sha256 sum not not provided to verification service",
 		}
 		JSON_EOF
 		return
@@ -231,7 +231,7 @@ verify () {
 		cat <<-JSON_EOF
 		{
 		    "status": "SHAMismatchError",
-		    "message": "sha256 sum does not match!",
+		    "error": "Image sha256 sum does not match expected value",
 		}
 		JSON_EOF
 		return

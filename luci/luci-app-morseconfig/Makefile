@@ -7,7 +7,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI Morse Configuration
-LUCI_DEPENDS:=+luci-base +libiwinfo +libiwinfo-lua +luci-lib-morseui +netifd-morse +morse-regdb +qrencode
+LUCI_DEPENDS:=+luci-base +libiwinfo +libiwinfo-lua +luci-lib-morseui +netifd-morse +morse-regdb
 
 PKG_BUILD_DEPENDS:=iwinfo
 PKG_LICENSE:=Apache-2.0

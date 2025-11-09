@@ -65,3 +65,11 @@
 .cbi-section-actions .cbi-button-edit {
 	display: none;
 }
+
+/* For infos/errors/warnings
+ */
+ .user-message {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+ }

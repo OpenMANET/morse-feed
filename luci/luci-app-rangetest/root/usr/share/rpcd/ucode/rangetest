@@ -12,14 +12,18 @@
  * Background commands create process output files in /var/run/rangetest/<id>.
  * 
  * API Schema:
- *  - background_iperf3_server() => { id }
- *  - background_iperf3_client() => { id, udp, reverse }
- *  - background_iperf3_result( id ) => json_blob
- *  - iw_station_dump() => { interface_1: "...", interface_2: "..." }
- *  - morse_cli_stats_reset() => nothing
- *  - morse_cli_stats() => json_blob
- *  - morse_cli_channel() => json_blob
- *  - ip_link() => { interface_1: {...}, interface_2: {...} }
+ *  - background_iperf3_server() => { id: number }
+ *  - background_iperf3_client(target: string, udp: boolean, reverse: boolean, time: integer, omit: integer) => { id: number, udp: boolean, reverse: boolean }
+ *  - terminate_background(id: number) => null
+ *  - get_background(id: number) => { json_blob: object }
+ *  - iw_station_dump() => { [interface: string]: string }
+ *  - morse_cli_stats_reset() => null
+ *  - morse_cli_stats() => { json_blob: object }
+ *  - morse_cli_channel() => { json_blob: object }
+ *  - ip_link() => { [interface: string]: object }
+ *  - info() => { rangetest_api_version: string }
+ *  - remote_device_login(target: string, password: string) => { ubus_response: object }
+ *  - remote_device_call(target: string, rpc_id: number, session_id: string, method: string, args: object) => { ubus_response: object }
  */
 
 import * as ubus from 'ubus';
@@ -27,20 +31,52 @@ const fs = require('fs');
 const uloop = require('uloop');
 const math = require('math');
 
+/**
+ * Temporarily defined here and in the uci-defaults script.
+ * See the comment in the uci-defaults script for more information.
+ */
+const API_VERSION='1.0.1';
+
 /* This is weird because running the iperf3 server
- * with -s -1 --json will not produce any output
+ * with -s --json will not produce any output
  * until the end, so assume that no iperf test runs > 5 minutes.
  */
 const OUTPUT_DIR_TTL = 300;
-const IPERF_OMIT_TIME = 2;
 const BG_OUTPUT_DIR = '/var/run/rangetest';
 
-function get_output_file_paths(id) {
+function _get_output_file_paths(id) {
 	return {
-		stdout: `${BG_OUTPUT_DIR}/${id}/stdout`,
-		stderr: `${BG_OUTPUT_DIR}/${id}/stderr`,
+		output: `${BG_OUTPUT_DIR}/${id}/output`,
 		exit_code: `${BG_OUTPUT_DIR}/${id}/exit_code`,
+		pid: `${BG_OUTPUT_DIR}/${id}/pid`,
 	};
+}
+
+/**
+ * Prepare an error object to be returned to the frontend.
+ * 
+ * With the overall intention of making the frontend as dumb as possible,
+ * the error message property will be shown blindy to the user if it is present. 
+ * Therefore, it should be a user friendly message which is context agnostic,
+ * or set to null and excluded from the response.
+ * 
+ * @param code ubus error code
+ * @param message a user facing error messages, excluded if null
+ * @param details additional details for developers
+ * @returns 
+ */
+function _error_response(code, message, ...details) {
+	const response = {
+		error: code,
+		details: details
+	};
+
+	/* If the message is null, it will be excluded from the response. */
+	if (message !== null) {
+		response['message'] = message;
+	}
+
+	return response;
 }
 
 /**
@@ -49,14 +85,24 @@ function get_output_file_paths(id) {
  * @param id name of the process output directory in /var/run/rangetest
  * @returns true if success else null if directory inaccesssible
  */
-function delete_output_directory(id) {
+function _delete_output_directory(id) {
 	const dir = `${BG_OUTPUT_DIR}/${id}`;
-	if (!fs.access(dir, 'f')) { exit(ubus.STATUS_SYSTEM_ERROR); }
-	const output_file_paths = get_output_file_paths(id);
-	for (file in output_file_paths) {
-		fs.unlink(output_file_paths[file]);
+	if (fs.access(dir, 'f') === null) { 
+		die(`Unable to access ${dir} (${fs.error()}).`); 
 	}
-	fs.rmdir(dir);
+	
+	let output_file_path;
+	const output_file_paths = fs.lsdir(dir);
+	for (output_file in output_file_paths) {
+		output_file_path = `${dir}/${output_file}`;
+		if (fs.unlink(output_file_path) === null) {
+			die(`Unable to delete ${output_file_path}. (${fs.error()}).`);
+		}
+	}
+
+	if (fs.rmdir(dir) === null) {
+		die(`Unable to delete ${dir} (${fs.error()}).`);
+	}
 }
 
 /**
@@ -65,105 +111,301 @@ function delete_output_directory(id) {
  * This is predicated on the rangetest only ever being run one at a time
  * and should only be called alongside the `killall -q iperf3` commands.
  */
-function clean_output_directories() {
-	if (!fs.access(BG_OUTPUT_DIR, 'f')) { return; }
+function _clean_output_directories() {
+	if (fs.access(BG_OUTPUT_DIR, 'f') === null) { 
+		die(`Unable to access ${BG_OUTPUT_DIR} (${fs.error()}).`); 
+	}
 
 	const output_directories = fs.lsdir(BG_OUTPUT_DIR);
-	if (!output_directories) { exit(ubus.STATUS_SYSTEM_ERROR); }
+	if (output_directories === null) {
+		die(`Unable to list directories in ${BG_OUTPUT_DIR} (${fs.error()}).`);
+	}
 
-	for (dir in output_directories) { delete_output_directory(dir); }
+	for (dir in output_directories) { _delete_output_directory(dir); }
 }
 
-function execute_background_command(command) {
-	const id = math.rand();
-
-	if (!fs.access(BG_OUTPUT_DIR, 'f')) {
-		if (!fs.mkdir(BG_OUTPUT_DIR)) { 
-			exit(ubus.STATUS_SYSTEM_ERROR);
-		}
+/** 
+ * Initiate a background command and return a custom ID so it can be queried.
+ * 
+ * All output should be redirected to /var/run/rangetest/<id>/output using 
+ * the available utilities of the command being called i.e. iperf3 has a
+ * --logfile option.
+ * 
+ * @param executable the executable to be run
+ * @param args an array of strings to be passed safely to the executable
+ * @param id a custom ID to be used for the background command
+ */
+function _execute_background_command(executable, args, id) {
+	/* Create the range test output directory if it doesn't exist. */
+	if (!fs.access(BG_OUTPUT_DIR, 'f') && fs.mkdir(BG_OUTPUT_DIR) === null) {
+		die(`Unable to create directory ${BG_OUTPUT_DIR} (${fs.error()}).`);
 	}
-	if (!fs.mkdir(`${BG_OUTPUT_DIR}/${id}`)) { 
-		exit(ubus.STATUS_SYSTEM_ERROR);
+
+	/* Create the process output directory. */
+	if (fs.mkdir(`${BG_OUTPUT_DIR}/${id}`) === null) { 
+		die(`Unable to create directory ${BG_OUTPUT_DIR}/${id} (${fs.error()}).`);
 	}
 
-	const output_file_paths = get_output_file_paths(id);
+	const output_file_paths = _get_output_file_paths(id);
 	for (file in output_file_paths) {
 		const n_bytes_written = fs.writefile(output_file_paths[file], null);
-		if (n_bytes_written == null) { 
-			exit(ubus.STATUS_SYSTEM_ERROR);
+		
+		/* Empty files return an empty string, not null */
+		if (n_bytes_written === null) { 
+			die(`Unable to write to file ${output_file_paths[file]} (${fs.error()}).`);
 		}
 	}
 
-	const stdout_redirect_param = ` 1>${output_file_paths.stdout}`;
-	const stderr_redirect_param = ` 2>${output_file_paths.stderr}`;
-	command += `${stdout_redirect_param} ${stderr_redirect_param}`;
-	const proc = uloop.task((pipe) => {
-		/* Has cover-all 10 minute timeout for hanging
-		 * iperf3 servers. Since the frontend knows the expected 
-		 * time each iperf test will take this timeout could be adjusted
-		 * to a more appropriate per-test value in future.
-		 */
-		const exit_code = system(command, 6000000);
+	const proc = uloop.process(executable, args, null, (exit_code) => {
 		fs.writefile(output_file_paths.exit_code, exit_code);
 	});
-	if (!proc) { exit(ubus.STATUS_SYSTEM_ERROR); }
 
-	return { id: id };
+
+	if (!proc) {
+		die(`Unable to run ${executable} ${args} (${uloop.error()}).`); 
+	}
+
+	/* Write the PID of the process to the output file */
+	const pid = proc.pid();
+
+	if (pid === null) {
+		die(`Unable to get PID of process ${executable} ${args} (${uloop.error()}).`);
+	}
+
+	if (fs.writefile(output_file_paths.pid, pid) === null) {
+		die(`Unable to write PID to file ${output_file_paths.pid} (${fs.error()}).`);
+	}
+}
+
+function _killall_iperf3() {
+	const exit_code = system(['killall', '-q', 'iperf3'], 1000);
+
+	/* Returns 1 when there were no processes to kill */ 
+	if (exit_code != 0 && exit_code != 1) {
+		die(`Exit code: ${exit_code}.`);
+	}
 }
 
 function background_iperf3_server(req) {
-	system('killall -q iperf3', 1000);
-	clean_output_directories();
-	const command = 'iperf3 -s -1 --json';
-	return execute_background_command(command);
+	try { _killall_iperf3(); }
+	catch (error) {
+		return _error_response(
+			ubus.STATUS_SYSTEM_ERROR,
+			'Unable to stop existing iPerf3 processes. Please try again. If the problem persists, consider rebooting the device.',
+			error
+		);
+	}
+
+	/* Ignore any errors from cleaning the output directories */
+	try {
+		_clean_output_directories();
+	} catch (error) {}
+
+	const executable = 'iperf3';
+	const args = ['-s', '--json'];
+
+	const id = math.rand();
+	const output_file_paths = _get_output_file_paths(id);
+	push(args, '--logfile', output_file_paths.output);
+
+	try {
+		_execute_background_command(executable, args, id);
+		return { id: id };
+	} catch (error) {
+		return _error_response(ubus.STATUS_SYSTEM_ERROR, 'Unable to start iPerf3 server. Please try again.', error);
+	}
 }
 
 function background_iperf3_client(req) {
 	const target = req.args.target;
-	const udp = req.args.udp ? '-u -b 40M/30' : '-Z';
-	const reverse = req.args.reverse ? '-R' : '';
 	const time = req.args.time;
-	if (time <= IPERF_OMIT_TIME || time >= OUTPUT_DIR_TTL) { exit(ubus.STATUS_INVALID_ARGUMENT); } 
-	if (iptoarr(target) == null) { exit(ubus.STATUS_INVALID_ARGUMENT); } 
+	const omit = req.args.omit;
 
-	system('killall -q iperf3', 1000);
-	clean_output_directories();
-	const command = `iperf3 -c ${target} ${udp} ${reverse} -t ${time} -O ${IPERF_OMIT_TIME} --json`;
-	return execute_background_command(command);
+	if (time <= omit || time >= OUTPUT_DIR_TTL) {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, `Invalid time value. Must be between ${omit} and ${OUTPUT_DIR_TTL} seconds.`);
+	}
+
+	if (iptoarr(target) === null) {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, 'Invalid target IP address. Please use an IPv4 address.');
+	}
+
+	try { _killall_iperf3(); }
+	catch (error) {
+		return _error_response(
+			ubus.STATUS_SYSTEM_ERROR,
+			'Unable to stop existing iPerf3 processes. Please try again. If the problem persists, consider rebooting the device.',
+			error
+		);
+	}
+
+	/* Ignore any errors from cleaning the output directories */
+	try {
+		_clean_output_directories();
+	} catch (error) {}
+	
+	const executable = 'iperf3';
+	const args = ['-c', target, '-t', time, '-O', omit, '--json'];
+	if (req.args.udp) {
+		push(args, '-u', '-b', '40M/30');
+	} else {
+		push(args, '-Z');
+	}
+
+	if (req.args.reverse) {
+		push(args, '-R');
+	}
+
+	const id = math.rand();
+	const output_file_paths = _get_output_file_paths(id);
+	push(args, '--logfile', output_file_paths.output);
+
+	try {
+		_execute_background_command(executable, args, id);
+		return { id: id };
+	} catch (error) {
+		return _error_response(
+			ubus.STATUS_SYSTEM_ERROR,
+			'Unable to start iPerf3 client. Please try again.',
+			error
+		);
+	}
 }
 
 function get_background(req) {
 	const id = req.args.id;
 
-	const output_file_paths = get_output_file_paths(id);
-	const output_data = {};
-	for (file in output_file_paths) {
-		if (!fs.access(output_file_paths[file], 'f')) {	exit(ubus.STATUS_SYSTEM_ERROR); }
-		output_data[file] = fs.readfile(output_file_paths[file]);
+	if (fs.access(`${BG_OUTPUT_DIR}/${id}`, 'f') === null) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'Unable to find iPerf3 test output. Please try again. If the problem persists, consider rebooting the device.',
+			`Unable to access ${BG_OUTPUT_DIR}/${id} (${fs.error()})`
+		);
 	}
 
-	/* The background iperf is ongoing, there will be no output 
-	 * due to the `--json` flag.
-	 */
+	const output_file_paths = _get_output_file_paths(id);
+	const output_data = {};
+
+	for (file in output_file_paths) {
+		/* Obscure the PID */
+		if (match(file, /\/pid/)) {
+			continue;
+		}
+
+		if (fs.access(output_file_paths[file], 'f') === null) {
+			return _error_response(
+				ubus.STATUS_NOT_FOUND, 
+				'Unable to find iPerf3 test output. Please try again. If the problem persists, consider rebooting the device.',
+				`Unable to access ${output_file_paths[file]} (${fs.error()})`
+			);
+		}
+		output_data[file] = fs.readfile(output_file_paths[file]);
+		if (output_data[file] === null) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to read iPerf3 test output. Please try again. If the problem persists, consider rebooting the device.',
+				`Unable to read ${output_file_paths[file]} (${fs.error()})`);
+		}
+	}
+
+	/* Process is still running */
 	if (output_data.exit_code == '') {
 		return {};
 	}
-	
-	/* The background iperf is complete, there output
-	 * should be json formatted due to the `--json` flag.
-	 */
-	if (output_data.exit_code == '0') { 
-		return json(output_data.stdout);
+
+	if (output_data.exit_code == '0') {
+		try {
+			return json(output_data.output);
+		} catch (error) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to read iPerf3 test output. Please try again. If the problem persists, consider rebooting the device.',
+				`Received invalid JSON (${output_data.output}[:100]): ${[substr(output_data.output, 0, 100)]}`
+			);
+		}
+	} else {
+		return _error_response(
+			ubus.STATUS_UNKNOWN_ERROR,
+			'Unable to read iPerf3 test output. Please try again. If the problem persists, consider rebooting the device.',
+			output_data.output
+		);
 	}
-	exit(ubus.STATUS_SYSTEM_ERROR); 
 }
 
-function execute_command(command) {
+/**
+ * Terminate a background command based on the ID.
+ * 
+ * This is mainly used to kill the iPerf3 server at the end of a test.
+ */
+function terminate_background(req) {
+	const id = req.args.id;
+	
+	/* Check that the output directory exists */
+	if (fs.access(`${BG_OUTPUT_DIR}/${id}`, 'f') === null) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'Unable to find test output. Please try again. If the problem persists, consider rebooting the device.',
+			`Unable to access ${BG_OUTPUT_DIR}/${id} (${fs.error()})`
+		);
+	}
+
+	/* Check that the PID file exists */
+	const output_file_paths = _get_output_file_paths(id);
+	if (fs.access(output_file_paths.pid, 'f') === null) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'Unable to find test output. Please try again. If the problem persists, consider rebooting the device.',
+			`Unable to access ${output_file_paths.pid} (${fs.error()})`
+		);
+	}
+
+	/* Check that the PID file contains a PID */
+	const pid = fs.readfile(output_file_paths.pid);
+	if (pid === null) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'Unable to find test process. Please try again. If the problem persists, consider rebooting the device.',
+			`Unable to read ${output_file_paths.pid} (${fs.error()})`
+		);
+	}
+
+	/* Kill the process */
+	const exit_code = system(['kill', '-15', pid], 1000);
+	if (exit_code != 0 && exit_code != 1) {
+		return _error_response(
+			ubus.STATUS_SYSTEM_ERROR,
+			'Unable to terminate test process. Please try again. If the problem persists, consider rebooting the device.',
+			`Unable to kill ${pid} (${exit_code})`
+		);
+	}
+
+	/* Delete the output directory */
+	try {
+		_delete_output_directory(id);
+	} catch (error) {}
+
+	return {};
+}
+	
+
+/**
+ * Run a command and return the output.
+ * 
+ * This is for useful for statistics commands which will
+ * complete immediately within the lifetime of the RPCD request.
+ * The passed command should not contain any user input as it will
+ * allow for arbitrary code execution.
+ */
+function _execute_command(command) {
 	let proc = fs.popen(command);
-	if (!proc) { exit(ubus.STATUS_SYSTEM_ERROR); }
+	if (!proc) { die(`Unable to execute the command ${command} (${fs.error()}).`); }
+
 	const output = proc.read('all');
+	if (output === null) { die(`Unable to read output from ${command} (${fs.error()}).`); }
+
 	const exit_code = proc.close();
-	return { 
+	if (exit_code !== 0) { die(`An error occurred whilst executing the command ${command} (exit code: ${exit_code}).`); }
+
+	return {
 		output: output, 
 		exit_code: exit_code 
 	};
@@ -173,12 +415,17 @@ function execute_command(command) {
  * 
  * Loop through each interface in /sys/class/net/
  * and check that the driver of the linked PHY device 
- * has a name beginning with "morse". Based on 
+ * has a name beginning with 'morse'. Based on 
  * morse.sh in netifd-morse.
  */
-function get_morse_devices() {
+function _get_morse_devices() {
 	let morse_devices = [];
-	const ls_entries = fs.lsdir('/sys/class/net/');
+	const network_interface_directory = '/sys/class/net/';
+	const ls_entries = fs.lsdir(network_interface_directory);
+	if (ls_entries === null) { 
+		die(`Unable to access ${network_interface_directory} (${fs.error()}).`); 
+	}
+	
 	let device;
 	for (device in ls_entries) {
 		const driver_path = `/sys/class/net/${device}/phy80211/device/driver`;
@@ -187,79 +434,327 @@ function get_morse_devices() {
 			push(morse_devices, device);
 		}
 	}
-	return morse_devices;
+
+	if (morse_devices.length == 0) {
+		die('No Morse Micro devices found.');
+	} else {
+		return morse_devices;
+	}
 }
 
 function iw_station_dump(req) {
-	const devices = get_morse_devices();
 	let output = {};
-	let device, results;
+	let devices, device, results;
+
+	try {
+		devices = _get_morse_devices();
+	} catch (error) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'No Morse Micro 802.11ah Wi-Fi devices found. Please check that your Morse Micro HaLow Wi-Fi is correctly enabled and configured before trying again.',
+			error
+		);
+	}
+
 	for (device in devices) {
-		results = execute_command(`iw ${device} station dump`);
-		if (results.exit_code == 0) {
-			output[device] = results.output;
-		} else {
-			output[device] = '';
+		try {
+			results = _execute_command(`iw ${device} station dump`);
+			output[device] = results.exit_code == 0 ? results.output : '';
+		} catch (error) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to collect channel information. This may affect the accuracy of results. If the problem persists, consider rebooting the device.',
+				error
+			);
 		}
 	}
+
 	return output;
 }
 
-
 function morse_cli_stats_reset(req) {
-	const devices = get_morse_devices();
-	let device, results;
-	for (device in devices) {
-		results = execute_command(`morse_cli -i ${device} stats -r`);
-		if (results.exit_code == 0) { return {}; }
+	let devices, device, results;
+
+	try {
+		devices = _get_morse_devices();
+	} catch (error) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'No Morse Micro 802.11ah Wi-Fi devices found. Please check that your Morse Micro HaLow Wi-Fi is correctly enabled and configured before trying again.',
+			error
+		);
 	}
-	exit(ubus.STATUS_SYSTEM_ERROR);
+
+	for (device in devices) {
+		try {
+			results = _execute_command(`morse_cli -i ${device} stats -r`);
+			if (results.exit_code == 0) { return {}; }
+		} catch (error) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to reset Morse Micro chip statistics. This may affect the accuracy of results. If the problem persists, consider rebooting the device.',
+				error
+			);
+		}
+	}
+
+	return _error_response(ubus.STATUS_NO_DATA, 'No devices were reset.');
 }
 
 /**
  * Collect the first valid output of morse_cli stats.
- * 
- * Assumes that there is only ever 1 morse chip.
  */
 function morse_cli_stats(req) {
-	const devices = get_morse_devices();
-	let device, results;
-	for (device in devices) {
-		results = execute_command(`morse_cli -i ${device} stats -j`);
-		if (results.exit_code == 0) { return json(results.output); }
+	let devices, device, results;
+
+	try {
+		devices = _get_morse_devices();
+	} catch (error) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'No Morse Micro 802.11ah Wi-Fi devices found. Please check that your Morse Micro HaLow Wi-Fi is correctly enabled and configured before trying again.',
+			error
+		);
 	}
-	exit(ubus.STATUS_SYSTEM_ERROR);
+
+	for (device in devices) {
+		try {
+			results = _execute_command(`morse_cli -i ${device} stats -j`);
+		} catch (error) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to collect Morse Micro chip statistics. This may be due to a non-standard HaLow configuration or the chip has malfunctioned. If the problem persists, consider rebooting the device.',
+				error
+			);
+		}
+		
+		if (results.exit_code == 0) {
+			try {
+				return json(results.output);
+			} catch (error) {
+				return _error_response(
+					ubus.STATUS_PARSE_ERROR,
+					'Unable to collect Morse Micro chip statistics. This may be due to a non-standard HaLow configuration or the chip has malfunctioned. If the problem persists, consider rebooting the device.',
+					`Received invalid JSON (${results.output}[:100]): ${[substr(results.output, 0, 100)]}`
+				);
+			}
+		}
+	}
+
+	return _error_response(ubus.STATUS_NO_DATA, 'No valid statistics found.');
 }
 
 /**
  * Collect the first valid output of morse_cli channel.
- * 
- * Assumes that there is only ever 1 morse chip.
  */
 function morse_cli_channel(req) {
-	const devices = get_morse_devices();
-	let device, results;
-	for (device in devices) {
-		results = execute_command(`morse_cli -i ${device} channel -j`);
-		if (results.exit_code == 0) { return json(results.output); }
+	let devices, device, results;
+
+	try {
+		devices = _get_morse_devices();
+	} catch (error) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'No Morse Micro 802.11ah Wi-Fi devices found. Please check that your Morse Micro HaLow Wi-Fi is correctly enabled and configured before trying again.',
+			error
+		);
 	}
-	exit(ubus.STATUS_SYSTEM_ERROR);
+
+	for (device in devices) {
+		try {
+			results = _execute_command(`morse_cli -i ${device} channel -j`);
+		} catch (error) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to collect Morse Micro bandwidth information. This may be due to a non-standard HaLow configuration or the chip has malfunctioned. If the problem persists, consider rebooting the device.',
+				error
+			);
+		}
+
+		if (results.exit_code == 0) {
+			try {
+				return json(results.output);
+			} catch (error) {
+				return _error_response(
+					ubus.STATUS_PARSE_ERROR, 
+					'Unable to collect Morse Micro bandwidth information. This may be due to a non-standard HaLow configuration or the chip has malfunctioned. If the problem persists, consider rebooting the device.',
+					`Received invalid JSON (${results.output}[:100]): ${[substr(results.output, 0, 100)]}`
+				);
+			}
+		}
+	}
 }
 
+/**
+ * Collect the ip_link output.
+ * 
+ * This command is run on both the local and remote in order to
+ * identify the connected interface for the iwinfo command which
+ * is used to collect the channel number.
+ */
 function ip_link(req) {
-	const devices = get_morse_devices();
 	let output = {};
-	let device, results, json_results;
+	let devices, device, results, json_results;
+
+	try {
+		devices = _get_morse_devices();
+	} catch (error) {
+		return _error_response(
+			ubus.STATUS_NOT_FOUND,
+			'No Morse Micro 802.11ah Wi-Fi devices found. Please check that your Morse Micro HaLow Wi-Fi is correctly enabled and configured before trying again.',
+			error
+		);
+	}
+
 	for (device in devices) {
-		results = execute_command(`ip -j -d link show ${device}`);
+		try {
+			results = _execute_command(`ip -j -d link show ${device}`);
+		} catch (error) {
+			return _error_response(
+				ubus.STATUS_SYSTEM_ERROR,
+				'Unable to collect channel information. This may affect the accuracy of results. If the problem persists, consider rebooting the device.',
+				error
+			);
+		}
+
 		if (results.exit_code == 0) {
-			json_results = json(results.output);
+			try {
+				json_results = json(results.output);
+			} catch (error) {
+				return _error_response(
+					ubus.STATUS_PARSE_ERROR,
+					'Unable to collect channel information. This may affect the accuracy of results. If the problem persists, consider rebooting the device.',
+					`Received invalid JSON (${results.output}[:100]): ${[substr(results.output, 0, 100)]}`
+				);
+			}
+			
 			output[device] = json_results[0];
 		} else {
 			output[device] = '';
 		}
 	}
 	return output;
+}
+
+/**
+ * Just the API version for now, but could easily be extended
+ * to include information about whether there is an existing
+ * rangetest in progress by checking the output directories.
+ */
+function info(req) {
+	return { rangetest_api_version: API_VERSION };
+}
+
+/**
+ * Use uclient-fetch to make a POST request to a remote device.
+ * 
+ * This writes to a temporary file and then immediately reads out of
+ * it due to the nature of execv with system calls. 
+ */
+function _uclient_fetch(url, post_data) {
+	const command = ['uclient-fetch', '-q', '-T', '10', '--post-data', post_data, url];
+
+	/* Create the range test output directory if it doesn't exist. */
+	if (!fs.access(BG_OUTPUT_DIR, 'f') && fs.mkdir(BG_OUTPUT_DIR) === null) {
+		die(`Unable to create directory ${BG_OUTPUT_DIR} (${fs.error()}).`);
+	}
+
+	/* Create the temporary file to capture request returns. */
+	const temp_file_path = `${BG_OUTPUT_DIR}/uclient-fetch-${math.rand()}`;
+	if (fs.writefile(temp_file_path, "") === null) {
+		die(`Unable to create temporary file (${fs.error()}).`);
+	}
+
+	try {
+		/* Redirect the output of uclient-fetch to the temporary file. */
+		push(command, '-O', temp_file_path);
+		
+		const exit_code = system(command, 13000);
+		if (exit_code != 0) {
+			die(`uclient-fetch returned a non-zero exit code (${exit_code}).`);
+		}
+		
+		const output_data = fs.readfile(temp_file_path);
+		if (output_data === null) {
+			die(`Unable to read from temporary file (${fs.error()}).`);
+		}
+
+		try {
+			fs.unlink(temp_file_path);
+            return json(output_data);
+        } catch (error) {
+            die(`Received invalid JSON (${output_data}[:100]): ${[substr(output_data, 0, 100)]}`);
+        }
+	} catch (error) {
+		fs.unlink(temp_file_path);
+		die(`${error}`);
+	}
+}
+
+function remote_device_login(req) {
+	if (iptoarr(req.args.target) === null) {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, 'Invalid target IP address.');
+	}
+
+	if (req.args.password === null) {
+		req.args.password = '';
+	}
+
+	const url = `http://${req.args.target}/ubus/`;
+	const post_data = {
+		id: 0,
+		method: 'call',
+		jsonrpc: '2.0',
+		params: [
+			'00000000000000000000000000000000',
+			'session',
+			'login',
+			{
+				username: 'root',
+				password: req.args.password,
+			}
+		]
+	};
+
+	return _uclient_fetch(url, post_data);
+}
+
+function remote_device_call(req) {
+	
+	if (iptoarr(req.args.target) === null) {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, 'Invalid target IP address.');
+	}
+	
+	if (req.args.rpc_id === null) {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, 'Invalid RPC ID.');
+	}
+
+	if (req.args.session_id === null) {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, 'Invalid session ID.');
+	}
+	
+	if (req.args.method === null || req.args.method === 'remote_device_call') {
+		return _error_response(ubus.STATUS_INVALID_ARGUMENT, 'Invalid method.');
+	}
+	
+	if (req.args.args === null) {
+		args = {};
+	}
+	
+	const url = `http://${req.args.target}/ubus/`;
+	const post_data = {
+		id: req.args.rpc_id,
+		method: 'call',
+		jsonrpc: '2.0',
+		params: [
+			req.args.session_id,
+			'rangetest',
+			req.args.method,
+			req.args.args
+		]
+	};
+
+	return _uclient_fetch(url, post_data);
 }
 
 return {
@@ -274,10 +769,17 @@ return {
 				udp: true,
 				reverse: false,
 				time: 10,
+				omit: 2,
 			},
 		},
 		get_background: {
 			call: get_background,
+			args: {
+				id: 123,
+			},
+		},
+		terminate_background: {
+			call: terminate_background,
 			args: {
 				id: 123,
 			},
@@ -297,5 +799,25 @@ return {
 		ip_link: {
 			call: ip_link,
 		},
-	},
+		info: {
+			call: info,
+		},
+		remote_device_login: {
+			call: remote_device_login,
+			args: {
+				target: '192.168.1.1',
+				password: 'password',
+			},
+		},
+		remote_device_call: {
+			call: remote_device_call,
+			args: {
+				target: '192.168.1.1',
+				rpc_id: 123,
+				session_id: 'abc123',
+				method: 'morse_cli_stats',
+				args: {},
+			},
+		}
+	}
 };

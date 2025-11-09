@@ -1,0 +1,10 @@
+{
+    "admin/help/guide": {
+        "title": "User Guide",
+        "order": 1,
+        "action": {
+            "type": "view",
+            "path": "morseguide/morseguide"
+        }
+    }
+}

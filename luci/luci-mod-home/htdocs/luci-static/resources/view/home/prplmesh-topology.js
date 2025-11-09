@@ -194,8 +194,8 @@ class PrplmeshTopologyGraph {
 			graph.addNode(idMap[device.ID], {
 				controller: device.ID === controllerId,
 				agent: true,
-				macAddress: idMap[device.ID],
-				backhaulMacAddress: device.MultiAPDevice?.Backhaul?.BackhaulMACAddress,
+				macAddress: device.ID,
+				backhaulMacAddress: device.MultiAPDevice?.Backhaul?.MACAddress,
 				enabled: radioEnabled,
 				channel: radio?.CurrentOperatingClasses?.['1']?.Channel,
 				model: device.ManufacturerModel, // This (and serialnumber) are hard-coded atm...

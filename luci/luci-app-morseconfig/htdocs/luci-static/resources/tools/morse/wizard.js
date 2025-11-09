@@ -66,12 +66,20 @@ class WizardWifiDevice {
 		return this['.name'];
 	}
 
-	get apInterfaceName() {
+	get apSectionName() {
 		return `default_${this.name}`;
 	}
 
-	get staInterfaceName() {
+	get staSectionName() {
 		return `sta_${this.name}`;
+	}
+
+	get apIfName() {
+		return `wl${this.name.match(/\d+/)?.[0] || this.name.slice(-3)}-ap`;
+	}
+
+	get staIfName() {
+		return `wl${this.name.match(/\d+/)?.[0] || this.name.slice(-3)}-sta`;
 	}
 
 	getBandName() {
@@ -110,7 +118,7 @@ function readSectionInfo() {
 	}
 
 	// privlan has been removed from all the configs, but for those upgrading we should prefer the IP address
-	// in privlan (i.e. likely 10.40.0.1) to that in lan (likely 10.40.0.1).
+	// in privlan (i.e. likely 10.42.0.1) to that in lan (likely 192.168.1.1).
 	const lanIp = morseuci.getFirstIpaddr('privlan') || morseuci.getFirstIpaddr('lan') || DEFAULT_LAN_IP;
 	let wlanIp;
 	// Likewise, we use the IP in lan here in case we got the previous ip from privlan (it's an old config).
@@ -135,15 +143,15 @@ function readSectionInfo() {
 	}
 
 	for (const wifiDevice of wifiDevices) {
-		if (!uci.get('wireless', wifiDevice.apInterfaceName)) {
-			uci.add('wireless', 'wifi-iface', wifiDevice.apInterfaceName);
-			uci.set('wireless', wifiDevice.apInterfaceName, 'device', wifiDevice.name);
-			uci.set('wireless', wifiDevice.apInterfaceName, 'mode', 'ap');
-			uci.set('wireless', wifiDevice.apInterfaceName, 'encryption', 'psk2');
-			uci.set('wireless', wifiDevice.apInterfaceName, 'ssid', morseuci.getDefaultSSID());
-			uci.set('wireless', wifiDevice.apInterfaceName, 'mesh_id', morseuci.getDefaultSSID());
-			uci.set('wireless', wifiDevice.apInterfaceName, 'key', morseuci.getDefaultWifiKey());
-			uci.set('wireless', wifiDevice.apInterfaceName, 'disabled', '1');
+		if (!uci.get('wireless', wifiDevice.apSectionName)) {
+			uci.add('wireless', 'wifi-iface', wifiDevice.apSectionName);
+			uci.set('wireless', wifiDevice.apSectionName, 'device', wifiDevice.name);
+			uci.set('wireless', wifiDevice.apSectionName, 'mode', 'ap');
+			uci.set('wireless', wifiDevice.apSectionName, 'encryption', 'psk2');
+			uci.set('wireless', wifiDevice.apSectionName, 'ssid', morseuci.getDefaultSSID());
+			uci.set('wireless', wifiDevice.apSectionName, 'mesh_id', morseuci.getDefaultSSID());
+			uci.set('wireless', wifiDevice.apSectionName, 'key', morseuci.getDefaultWifiKey());
+			uci.set('wireless', wifiDevice.apSectionName, 'disabled', '1');
 		}
 	}
 
@@ -151,7 +159,7 @@ function readSectionInfo() {
 		[morseDeviceName]: [morseInterfaceName, morseBackhaulStaName, morseMeshApInterfaceName, morseMeshInterfaceName],
 		...wifiDevices.reduce((acc, wifiDevice) => ({
 			...acc,
-			[wifiDevice.name]: [wifiDevice.apInterfaceName, wifiDevice.staInterfaceName],
+			[wifiDevice.name]: [wifiDevice.apSectionName, wifiDevice.staSectionName],
 		}), {}),
 	};
 
@@ -388,7 +396,7 @@ function resetUci() {
 		// NB leaving 'disabled' out of the whitelist ensures the device is enabled.
 		whitelistFields('wireless', device, [
 			'type', 'path', 'band', 'hwmode', 'htmode', 'reconf', 'bcf', 'country', 'channel',
-			'cell_density', 'txpower',
+			's1g_chanbw', 'cell_density', 'txpower',
 		]);
 	}
 
@@ -425,7 +433,7 @@ function resetUci() {
 	// could interfere. We can leave the other interfaces alone after disabling them
 	// (which will allow people to keep non-wizard interfaces around safely).
 	const { morseMeshApInterfaceName, morseInterfaceName, wifiDevices } = readSectionInfo();
-	const knownInterfaces = new Set([morseMeshApInterfaceName, morseInterfaceName, ...wifiDevices.map(s => s.apInterfaceName), ...wifiDevices.map(s => s.staInterfaceName)]);
+	const knownInterfaces = new Set([morseMeshApInterfaceName, morseInterfaceName, ...wifiDevices.map(s => s.apSectionName), ...wifiDevices.map(s => s.staSectionName)]);
 
 	for (const iface of uci.sections('wireless', 'wifi-iface')) {
 		if (knownInterfaces.has(iface['.name'])) {
@@ -503,11 +511,7 @@ function resetUciNetworkTopology() {
 		// Remove any ad-hoc things.
 		// Remove batman device and interfaces
 		if (iface['proto'] == 'batadv') {
-			uci.remove('network', iface['.name']);
-		}
-
-		if (iface['proto'] == 'batadv_hardif') {
-			uci.remove('network', iface['.name']);
+			uci.set('network', iface['.name'], 'disabled', '1');
 		}
 
 		uci.unset('network', iface['.name'], 'gateway');
@@ -539,6 +543,7 @@ class WizardPage {
 		this.section = section;
 		this.wpId = ++wpId;
 		this.diagramArgs = null;
+		this.onload = null;
 	}
 
 	enableDiagram(args = {}) {
@@ -552,6 +557,11 @@ class WizardPage {
 	}
 
 	setNavActive(active) {
+		// call onload cb when the page is "active"
+		if (active == true && typeof this.onload === 'function') {
+			this.onload.call(this, this, this.section.section);
+		}
+
 		for (const option of this.options) {
 			const el = document.getElementById(option.cbid(option.section.section));
 			if (el) {

@@ -13,7 +13,7 @@ var ProgressBar = baseclass.extend({
 
 	__update() {
 		this.progressBarElement.style.width = `${this.percentage}%`;
-		this.progressBarContainer.title = `${this.text}  (${this.percentage}%)`;
+		this.progressBarContainer.title = `${this.text}  (${Math.floor(this.percentage)}%)`;
 	},
 
 	show() {

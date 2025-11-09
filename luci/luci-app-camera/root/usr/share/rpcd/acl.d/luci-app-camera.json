@@ -3,10 +3,18 @@
 		"description": "Grant access to rpcd-mod-onvif proxy",
 		"read": {
 			"ubus": {
-				"onvif": [ "probe", "info", "set_encoder", "set_imaging", "get_stream" ],
-				"mediamtx": [ "set_proxy", "get_ports" ],
-				"luci-rpc": [ "callLuciNetworkDevices" ]
-			}
+				"onvif": [ "probe", "info", "get_stream" ],
+				"mediamtx": [ "get_ports" ],
+				"luci-rpc": [ "callLuciNetworkDevices" ],
+			},
+			"uci": [ "cameras", "wireless", "aws_kvs" ]
+		},
+		"write": {
+			"ubus": {
+				"onvif": [ "set_encoder", "set_imaging" ],
+				"mediamtx": [ "set_proxy" ]
+			},
+			"uci": [ "cameras", "wireless", "aws_kvs" ]
 		}
 	}
 }

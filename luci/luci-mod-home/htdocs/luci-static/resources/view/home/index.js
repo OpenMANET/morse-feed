@@ -26,7 +26,7 @@
 
 'use strict';
 
-/* globals configDiagram dom firewall form morseuci morseui network poll prplmeshTopology rpc ui uci view */
+/* globals configDiagram dom firewall form morseuci morseui network poll prplmeshTopology mesh11sTopology rpc ui uci view */
 'require dom';
 'require firewall';
 'require form';
@@ -37,6 +37,7 @@
 'require view';
 'require poll';
 'require view.home.prplmesh-topology as prplmeshTopology';
+'require view.home.mesh11s-topology as mesh11sTopology';
 'require custom-elements.morse-config-diagram as configDiagram';
 'require tools.morse.uci as morseuci';
 'require tools.morse.morseui as morseui';
@@ -1026,6 +1027,84 @@ function createPrplmeshAgentCard() {
 	});
 }
 
+function renderMesh11sTopology(meshAgentCount, mesh11sData) {
+	const graph = mesh11sData.buildGraph();
+	// Re-rendering is painful, as it will mean that any existing zoom is lost.
+	// Therefore we only rerender if something we care about has changed.
+	const newState = Array.from(graph.getStateInfo()).join(' ') + ` agentCount:${meshAgentCount}`;
+
+	// This is a bit tricky. We search the DOM for a previous instance of our topology diagram,
+	// then yank it out and re-use it if the state hasn't actually changed. This is how, at the moment,
+	// we get away with having a stupidly simple top-level that blows all the cards away each
+	// time while still keeping this one separate (since the topology render is one of the heaviest
+	// actions, and if it's live we want to keep the current zoom status/layout).
+	const existingTopology = document.getElementById('mesh11s-topology');
+	if (existingTopology && newState === existingTopology.dataset.state) {
+		return existingTopology;
+	}
+
+	const topology = E('div', { 'id': 'mesh11s-topology', 'data-state': newState }, [
+		E('div', { class: 'graphbuttons pull-right' }, [
+			E('button', { class: 'zoomin cbi-button cbi-button-action' }, _('Zoom in')),
+			E('button', { class: 'zoomout cbi-button cbi-button-action' }, _('Zoom out')),
+			E('button', { class: 'reset cbi-button cbi-button-action' }, _('Reset')),
+		]),
+		E('div', { class: 'graphcontainer', style: 'height: 600px;' }),
+	]);
+
+	// We only want to render the graph when it becomes visible
+	// (as rendering when it's not visible causes it to render in the wrong place).
+	// This also saves unnecessary graph calculations on initial load
+	// (in particular, we run 1000 PRERENDER_ITERATIONS to have an initially mostly sane layout).
+	new IntersectionObserver((entries, observer) => {
+		entries.forEach((entry) => {
+			if (entry.intersectionRatio > 0) {
+				const renderer = graph.renderTo(topology.querySelector('.graphcontainer'));
+				topology.querySelector('.graphbuttons .zoomin').addEventListener('click', () => renderer.zoomIn());
+				topology.querySelector('.graphbuttons .zoomout').addEventListener('click', () => renderer.zoomOut());
+				topology.querySelector('.graphbuttons .reset').addEventListener('click', () => renderer.reset());
+				observer.disconnect();
+			}
+		});
+	}, { root: document.documentElement }).observe(topology);
+
+	return topology;
+}
+
+async function createMesh11sTopologyCard() {
+	let mesh11sData;
+	try {
+		mesh11sData = await mesh11sTopology.load();
+	} catch (e) {
+		console.error('Failed to load 11s mesh topology:', e);
+	}
+
+	const meshAgentCount = mesh11sData.countAgents() || 0;
+	const meshStatus = mesh11sData.meshStatus();
+	const colorStyle = `color: ${meshStatus ? 'green' : 'red'}`;
+
+	return new Card('mesh11s', {
+		heading: '802.11s Mesh Topology',
+		contents: [
+			E('div', { style: 'display: flex; justify-content: space-between; align-items: center;' }, [
+				E('dl', [
+					E('dt', _('Mesh status')),
+					E('dd', { style: colorStyle }, meshStatus ? _('active') : _('inactive')),
+				]),
+			]),
+			E('div', { class: 'main-counter' }, [
+				E('button', { class: 'big-number click-to-expand' }, meshAgentCount),
+				E('button', { class: 'big-text click-to-expand' }, _('Connected Mesh Nodes')),
+			]),
+		],
+		maxContents: meshAgentCount > 0 && [
+			E('h2', { style: 'margin: 0' }, _('Current Device’s View of the Mesh Network')),
+			renderMesh11sTopology(meshAgentCount, mesh11sData),
+		],
+
+	});
+}
+
 class Card {
 	constructor(id, { heading, contents, maxContents, highlights, link }) {
 		this.id = id;
@@ -1246,6 +1325,7 @@ return view.extend({
 
 		const cards = [];
 		const nonHaLowCards = [];
+		let meshCardAdded = false;
 
 		// List HaLow ifaces first
 		for (const wifiNetwork of wifiNetworks) {
@@ -1255,6 +1335,10 @@ return view.extend({
 					const card = createAssoclistCard(wifiNetwork, hostHints);
 					if (isHaLow(wifiNetwork)) {
 						cards.push(card);
+						if (mode == 'mesh' && !meshCardAdded) {
+							cards.push(await createMesh11sTopologyCard());
+							meshCardAdded = true;
+						}
 					} else {
 						nonHaLowCards.push(card);
 					}

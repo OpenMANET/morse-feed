@@ -1590,7 +1590,7 @@ tr > th,
   padding: 1.1em 1.25rem;
 }
 
-[data-page="admin-network-wireless"] .td,
+[data-page="admin-network-wireless"] .cbi-section-table .td,
 .table[width="100%"] > .tr:first-child > .td,
 [data-page="admin-network-diagnostics"] .tr > .td,
 .tr.table-titles > .th,
@@ -2962,6 +2962,7 @@ td > .ifacebadge,
 
 #syslog {
   font-size: small;
+  font-family: monospace;
   line-height: 1.25;
   overflow-y: hidden;
   width: 100%;
@@ -4026,7 +4027,7 @@ pre.command-output {
   .cbi-value-field .cbi-input-select,
   .cbi-value input[type="text"],
   .cbi-value input[type="password"] {
-    min-width: 16rem;
+    min-width: 15.5rem;
   }
 
   #cbi-firewall-zone .cbi-input-select {
@@ -4110,8 +4111,8 @@ pre.command-output {
   .cbi-value-field .cbi-dropdown,
   .cbi-value-field .cbi-input-select,
   .cbi-value input[type="text"] {
-    width: 16rem;
-    min-width: 16rem;
+    width: 15rem;
+    min-width: 15rem;
   }
 
   /* .cbi-value input[type="password"], */
@@ -4429,6 +4430,11 @@ pre.command-output {
 
   .login-page .login-container footer {
     display: none;
+  }
+
+  .hide-sm,
+  .hide-xs {
+    display: none !important;
   }
 }
 

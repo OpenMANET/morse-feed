@@ -239,27 +239,25 @@ function getOrCreateDnsmasq(networkSectionId) {
  * wifi-ifaces that will generate multiple devices - e.g. WDS APs).
  */
 function hasMultipleDevices(networkSectionId) {
-	let count = getNetworkDevices(networkSectionId).length;
+	const wifiIfaces = getNetworkWifiIfaces(networkSectionId);
 
-	for (const wifiIface of getNetworkWifiIfaces(networkSectionId)) {
-		// TODO (APP-2823) I don't think wifiIface.mode 'mesh' is an appropriate trigger for this
-		// (some confusion with prplmesh or +AP?), but for consistency with the old behaviour...
-		count += (wifiIface.mode === 'ap' && wifiIface.wds === '1') || wifiIface.mode === 'mesh' ? 2 : 1;
+	for (const wifiIface of wifiIfaces) {
+		if (wifiIface.mode === 'ap' && wifiIface.wds === '1') {
+			return true;
+		}
 	}
 
-	return count > 1;
+	return wifiIfaces.length + getNetworkDevices(networkSectionId).length > 1;
 }
 
 function forceBridge(networkSectionId, bridgeName, bridgeMAC = null) {
 	const currentDevice = uci.get('network', networkSectionId, 'device');
-	let bridge = uci.sections('network', 'device').find(s => s.type == 'bridge' && s.name == bridgeName);
+	let bridge = uci.sections('network', 'device').find(s => s.type == 'bridge' && s.name == bridgeName)?.name;
 	// Create a bridge device with the bridgeName if it doesn't exist
 	if (!bridge) {
 		bridge = uci.add('network', 'device');
 		uci.set('network', bridge, 'name', bridgeName);
 		uci.set('network', bridge, 'type', 'bridge');
-		if (bridgeMAC)
-			uci.set('network', bridge, 'macaddr', bridgeMAC);
 	} else {
 		// If bridge is mapped to any other network unset it
 		for (const network of uci.sections('network', 'interface')) {
@@ -267,20 +265,26 @@ function forceBridge(networkSectionId, bridgeName, bridgeMAC = null) {
 				uci.unset('network', network['.name'], 'device');
 			}
 		}
-		if (bridgeMAC) {
-			uci.set('network', bridge['.name'], 'macaddr', bridgeMAC);
-		}
 	}
-	// Do nothing if the network is already on the expected bridge
+
+	if (bridgeMAC) {
+		uci.set('network', bridge, 'macaddr', bridgeMAC);
+	}
+
+	// If our bridge has changed, move any existing ports/devices
+	// (and remove them from an existing bridge).
 	if (currentDevice != bridgeName) {
-		// Remove any bridge attached to the network
 		const existingBridge = uci.sections('network', 'device').find(s => s.type == 'bridge' && s.name == currentDevice);
+		const ports = [];
 		if (existingBridge) {
-			uci.unset('network', networkSectionId, 'device');
-			if (existingBridge.ports && existingBridge.ports.length > 0) {
-				uci.set('network', bridge, 'ports', existingBridge.ports);
-			}
+			ports.push(...L.toArray(existingBridge.ports));
 			uci.unset('network', existingBridge, 'ports');
+		} else if (currentDevice) {
+			ports.push(currentDevice);
+		}
+
+		if (ports.length > 0) {
+			uci.set('network', bridge, 'ports', ports);
 		}
 
 		uci.set('network', networkSectionId, 'device', bridgeName);
@@ -416,7 +420,6 @@ function getNetworkDevices(sectionId) {
 	return res ? L.toArray(res) : [];
 }
 
-// Set the devices for a network section, creating a bridge if necessary.
 function setNetworkDevices(sectionId, devices) {
 	const device = uci.get('network', sectionId, 'device');
 	const deviceSection = uci.sections('network', 'device')
@@ -468,19 +471,27 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	const morseDevice = uci.sections('wireless', 'wifi-device').find(s => s.type === 'morse');
 	const morseDeviceName = morseDevice?.['.name'];
 	const morseInterfaceName = `default_${morseDeviceName}`;
-	const batmanIfaceName = 'batmesh0';
+	const batmanIfaceName0 = 'batmesh0';
+	const batmanIfaceName1 = 'batmesh1';
 
 	// See if there's already a batman interface on this device
-	const batmanInterface = uci.sections('network', 'interface').find(s => s.proto === 'batadv_hardif' && s.master=== deviceName);
-	if (batmanInterface) {
-		return uci.get('network', batmanIfaceName, 'name');
+	const batmanInterface0 = uci.sections('network', 'interface').find(s => s.proto === 'batadv_hardif' && s.master=== deviceName && s['.name'] === batmanIfaceName0);
+	if (batmanInterface0) {
+		return uci.get('network', batmanIfaceName0, 'name');
 	}
 
 	// Create the batman interface on the batman device
-	uci.add('network', 'interface', batmanIfaceName);
-	uci.set('network', batmanIfaceName, 'proto', 'batadv_hardif');
-	uci.set('network', batmanIfaceName, 'master', deviceName);
+	uci.add('network', 'interface', batmanIfaceName0);
+	uci.set('network', batmanIfaceName0, 'proto', 'batadv_hardif');
+	uci.set('network', batmanIfaceName0, 'master', deviceName);
 
+	// Stub out a batmesh1 interface for future use
+	const batmanInterface1 = uci.sections('network', 'interface').find(s => s.proto === 'batadv_hardif' && s.master=== deviceName && s['.name'] === batmanIfaceName1);
+	if (!batmanInterface1) {
+		uci.add('network', 'interface', batmanIfaceName1);
+		uci.set('network', batmanIfaceName1, 'proto', 'batadv_hardif');
+		uci.set('network', batmanIfaceName1, 'master', deviceName);
+	}
 
 	// Loop through devices using uci.sections('network', 'device') and find the one with the name br-ahwlan
 	// Then set the bat0 device as a port on that bridge
@@ -510,7 +521,7 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	}
 
 	// change wifi-iface ahwlan to use batman interface default_radio0
-	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName);
+	uci.set('wireless', morseInterfaceName, 'network', batmanIfaceName0);
 	// Disable mesh11sd to use batman-adv instead
 	uci.set('mesh11sd', 'mesh_params', 'mesh_fwding', '0');
 	// Set a DNS server on the LAN interface so that clients can resolve names across the batman mesh
@@ -521,7 +532,7 @@ function setupBatmanInterfaceOnDevice(deviceName = 'bat0') {
 	uci.set('firewall', forwardingId, 'src', 'ahwlan');
 	uci.set('firewall', forwardingId, 'dest', 'lan');
 
-	return uci.get('network', batmanIfaceName, 'name');
+	return uci.get('network', batmanIfaceName0, 'name');
 }
 
 function getRandomIpaddr(ip) {
@@ -702,7 +713,4 @@ return baseclass.extend({
 	getFirstNetmask,
 	getEthernetPorts,
 	getEthernetStaticIp,
-	getNetworkInterfaces,
-	setupBatmanDeviceOnNetwork,
-	setupBatmanInterfaceOnDevice
 });

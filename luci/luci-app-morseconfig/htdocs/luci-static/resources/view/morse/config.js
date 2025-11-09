@@ -104,6 +104,7 @@ const ENCRYPTION_OPTIONS_FOR_MODE = {
 	mac80211: {
 		default: ['psk2', 'sae-mixed', 'sae', 'owe', 'wpa3', 'none'],
 		mesh: ['sae', 'none'],
+		easymesh: ['psk2', 'sae-mixed', 'sae'],
 		adhoc: ['psk2', 'none'],
 		monitor: ['none'],
 		none: ['none'],
@@ -111,6 +112,7 @@ const ENCRYPTION_OPTIONS_FOR_MODE = {
 	morse: {
 		default: ['sae', 'owe', 'wpa3', 'none'],
 		mesh: ['sae', 'none'],
+		easymesh: ['psk2', 'sae-mixed', 'sae'],
 		adhoc: ['none'],
 		monitor: ['none'],
 		none: ['none'],
@@ -127,12 +129,27 @@ ${_('If this interface is not the connection to external subnets, you don\'t nee
 
 const NETWORK_WITHOUT_DEVICES_INFO = _('This network interface is unused because it has no Wireless interfaces or Ethernet ports. You can add Ethernet ports using the Ethernet column, or add Wireless interfaces by configuring them in the section below.');
 
+// In the quick config page, we only really want to deal with 'normal' looking ifaces
+// to avoid confusion, so we use this to filter out things we don't care about
+// (the user can use the normal luci config if they have more complex requirements).
+function isNormalNetworkIface(netIface) {
+	return netIface.disabled !== '1' && netIface['.name'] !== 'loopback' && ['dhcp', 'static'].includes(netIface['proto']);
+}
+
 // This is based on widgets.NetworkSelect, but uses the zone style colouring
 // rather than the attached devices icons.
 const SimpleNetworkSelect = form.ListValue.extend({
 	__name__: 'CBI.SimpleNetworkSelect',
 
 	renderWidget(section_id, option_index, cfgvalue) {
+		// Because this changes on reset, we calculate the values each time here.
+		this.clear();
+		for (const networkIface of uci.sections('network', 'interface')) {
+			if (isNormalNetworkIface(networkIface)) {
+				this.value(networkIface['.name'], networkIface['.name']);
+			}
+		}
+
 		const choices = this.transformChoices();
 		for (const [k, v] of Object.entries(choices)) {
 			choices[k] = E('span', { class: 'zonebadge network-name', style: firewall.getZoneColorStyle(morseuci.getZoneForNetwork(v)) }, v);
@@ -160,6 +177,14 @@ const SimpleForwardSelect = form.ListValue.extend({
 	__name__: 'CBI.SimpleForwardSelect',
 
 	renderWidget: function (section_id, option_index, cfgvalue) {
+		// Because this changes on reset, we calculate the values each time here.
+		this.clear();
+		for (const networkIface of uci.sections('network', 'interface')) {
+			if (isNormalNetworkIface(networkIface)) {
+				this.value(networkIface['.name'], networkIface['.name']);
+			}
+		}
+
 		const choices = this.transformChoices();
 		// We have to remove the current network on render
 		// (we can't do this on construction, since the option can result
@@ -237,7 +262,9 @@ const WifiEncryptionList = form.ListValue.extend({
 	__name__: 'CBI.WifiEncryptionList',
 
 	renderWidget(sectionId, optionIndex, cfgvalue) {
-		const mode = this.section.formvalue(sectionId, 'mode');
+		const deviceName = uci.get('wireless', sectionId, 'device');
+		const mode = isEasyMeshManagedIface(sectionId, deviceName) ? 'easymesh' : this.section.formvalue(sectionId, 'mode');
+
 		const deviceType = Object.keys(ENCRYPTION_OPTIONS_FOR_MODE).includes(this.deviceType) ? this.deviceType : 'default';
 		let encryptionOptions = ENCRYPTION_OPTIONS_FOR_MODE[deviceType][mode];
 		if (!encryptionOptions) {
@@ -301,19 +328,45 @@ const WifiSecurityValue = form.Value.extend({
 	},
 });
 
-// In the quick config page, we only really want to deal with 'normal' looking ifaces
-// to avoid confusion, so we use this to filter out things we don't care about
-// (the user can use the normal luci config if they have more complex requirements).
-function isNormalNetworkIface(netIface) {
-	return netIface.disabled !== '1' && netIface['.name'] !== 'loopback' && ['dhcp', 'static'].includes(netIface['proto']);
-}
-
 function getWifiIfaceModeI18n(wifiIface) {
 	return WIFI_MODE_NAMES[wifiIface.mode] ?? _('Unknown');
 }
 
 function modeUsesDefaultWifiKey(mode) {
 	return ['ap', 'ap-wds', 'mesh'].includes(mode);
+}
+
+// Returns true if the wireless interface is easy mesh managed
+function isEasyMeshManagedIface(sectionId, deviceName) {
+	// Return right away if easy mesh disabled
+	if (!isEasyMeshEnabled()) return false;
+
+	const prplMeshAPIface = uci.get('prplmesh', deviceName, 'hostap_iface');
+	const prplMeshStaIface = uci.get('prplmesh', deviceName, 'sta_iface');
+	const wirelessIface = uci.get('wireless', sectionId, 'ifname');
+	const mode = uci.get('wireless', sectionId, 'mode');
+
+	// If the wireless interface is missing, it is not EasyMesh managed
+	if (!wirelessIface) return false;
+
+	// Check if it is an EasyMesh-managed AP
+	if (mode === 'ap') return wirelessIface === prplMeshAPIface;
+
+	// Check if it is an EasyMesh-managed STA
+	if (mode === 'sta') return wirelessIface === prplMeshStaIface;
+
+	return false;
+}
+
+// returns true if easy mesh enabled
+function isEasyMeshEnabled() {
+	return uci.get('prplmesh', 'config', 'enable') === '1';
+}
+
+// Returns true if the device contains easy mesh manged AP/Sta
+function isEasyMeshManagedDevice(deviceName) {
+	const val = uci.get('prplmesh', deviceName);
+	return isEasyMeshEnabled() && val !== null && val !== undefined;
 }
 
 return view.extend({
@@ -391,13 +444,21 @@ return view.extend({
 				}
 			}
 
+			if (wd.channel === 'auto') {
+				if (modes.length > 1) {
+					throw new TypeError(_('Automatic channel selection (ACS) can only be used with a single interface with a Morse device.'));
+				} else if (['mesh', 'adhoc'].includes(modes[0])) {
+					throw new TypeError(_('Automatic channel selection (ACS) does not support Mesh Point or Ad-Hoc interfaces.'));
+				}
+			}
+
 			if (modes.length > 2) {
 				// This is consistent with what iw phy reports as a device capability.
 				throw new TypeError(_('Morse devices can currently have at most two enabled interfaces.'));
 			} else if (modes.length === 2) {
 				modes.sort();
-				if (!(modes[0] === 'ap' && ['mesh', 'sta'].includes(modes[1]))) {
-					throw new TypeError(_('Morse devices with multiple interfaces can only support AP+Mesh or AP+Client.'));
+				if (!(modes[0] === 'ap' && ['mesh', 'sta', 'ap'].includes(modes[1]))) {
+					throw new TypeError(_('Morse devices with multiple interfaces can only support AP+AP, AP+Mesh or AP+Client.'));
 				}
 			}
 		}
@@ -412,6 +473,7 @@ return view.extend({
 			uci.load('prplmesh').catch(() => null),
 			uci.load('mesh11sd').catch(() => null),
 			uci.load('wireless').catch(() => null),
+			uci.load('smart_manager').catch(() => null),
 			network.flushCache(true),
 		]);
 	},
@@ -425,7 +487,17 @@ return view.extend({
 		this.wifiDevices = (await network.getWifiDevices()).reduce((o, d) => (o[d.getName()] = d, o), {});
 		this.wifiNetworks = (await network.getWifiNetworks()).reduce((o, n) => (o[n.getName()] = n, o), {});
 
-		const hasWireless = Object.keys(this.wifiDevices).length > 0;
+		let wirelessMap = null;
+		if (Object.keys(this.wifiDevices).length > 0) {
+			wirelessMap = new form.Map('wireless', [
+				'Wireless',
+				E('a', {
+					href: L.url('admin', 'network', 'wireless'),
+					title: 'Advanced Configuration',
+					class: 'advanced-config pull-right',
+				}),
+			]);
+		}
 
 		const networkMap = new form.Map('network', [
 			_('Network Interfaces'),
@@ -435,26 +507,16 @@ return view.extend({
 				class: 'advanced-config pull-right',
 			}),
 		]);
-		if (hasWireless) {
+		if (wirelessMap) {
 			networkMap.chain('wireless');
 		}
 		networkMap.chain('firewall');
 		networkMap.chain('dhcp');
-		this.renderNetworkInterfaces(networkMap, hasWireless);
 
-		const easyMesh = uci.get('prplmesh', 'config', 'enable');
+		this.renderNetworkInterfaces(networkMap, wirelessMap);
 
-		let wirelessMap = null;
-		if (hasWireless) {
-			wirelessMap = new form.Map('wireless', [
-				'Wireless',
-				E('a', {
-					href: L.url('admin', 'network', 'wireless'),
-					title: 'Advanced Configuration',
-					class: 'advanced-config pull-right',
-				}),
-			]);
-
+		if (wirelessMap) {
+			const isPrplMeshAgent = (isEasyMeshEnabled() && (uci.get('prplmesh', 'config', 'management_mode') === 'Multi-AP-Agent'));
 			// Put HaLow devices first
 			const uciWifiDevices = uci.sections('wireless', 'wifi-device').filter(s => s.type === 'morse');
 			uciWifiDevices.push(...uci.sections('wireless', 'wifi-device').filter(s => s.type !== 'morse'));
@@ -462,25 +524,55 @@ return view.extend({
 				if (device.disabled === '1') {
 					continue;
 				}
-
 				this.renderWifiDevice(wirelessMap, device);
-				if (device.type === 'morse' && easyMesh == '1') {
-					const alert_message_section = wirelessMap.section(form.TypedSection, 'EasyMesh_Info', _('EasyMesh Alert Message'));
-					alert_message_section.anonymous = true;
-					alert_message_section.render = function () {
-						return E('div', { class: 'alert-message warning' }, _(`
-							The following section is read-only in EasyMesh mode. Any direct modifications made on this page might disrupt normal functionality. To make changes, please use the <a target="_blank" href="%s">wizard</a>.
-						`).format(L.url('admin', 'selectwizard')));
+
+				// Filters the easy mesh managed
+				const filterEasyMeshManagedIface = (sectionId, deviceName) => {
+					return isEasyMeshManagedIface(sectionId, deviceName);
+				};
+
+				// Filters non easy mesh managed AP
+				const filterNonEasyMeshManagedAps = (sectionId, deviceName) => {
+					return !filterEasyMeshManagedIface(sectionId, deviceName);
+				};
+
+				// Alert messages rendering in easy mesh mode
+				const renderEasyMeshAlert = () => {
+					const easyMeshAlertMsg = _(`Some options in the EasyMesh Managed interfaces are read-only to prevent misconfiguration.
+						To make changes, please use the <a target='_blank' href='%s'>wizard</a>.`).format(L.url('admin', 'selectwizard'));
+					const easyMeshAgentAlertMsg = _(`EasyMesh Managed interfaces are read-only in agent mode. To make changes, use the HaLow Gateway GUI.
+						The Extender's QR code for connecting to the Wi-Fi network is no longer valid.`);
+
+					const alertMsgSection = wirelessMap.section(form.TypedSection, 'EasyMesh_Info', _('EasyMesh Alert Message'));
+					alertMsgSection.anonymous = true;
+					alertMsgSection.render = function () {
+						return E('div', { class: 'alert-message warning' }, isPrplMeshAgent ? easyMeshAgentAlertMsg : easyMeshAlertMsg);
 					};
-					this.renderWifiInterfaces(wirelessMap, device['.name'], { readOnly: true });
-				} else {
-					this.renderWifiInterfaces(wirelessMap, device['.name']);
+				};
+
+				const isMeshManaged = isEasyMeshManagedDevice(device['.name']);
+				if (isMeshManaged) {
+					const meshManagedTitle = _(`EasyMesh Managed Interfaces`);
+					const ifaceOptions = { addRemove: false };
+					ifaceOptions.readOnlyFields = isPrplMeshAgent ? ['all'] : ['disabled', 'mode', 'network'];
+
+					// Render easy mesh alert
+					renderEasyMeshAlert();
+
+					// Render easy mesh managed interfaces
+					this.renderWifiInterfaces(wirelessMap, device['.name'], filterEasyMeshManagedIface, meshManagedTitle, ifaceOptions);
 				}
+
+				// Display the title only for easy mesh managed device.
+				const nonEasyMeshManagedTitle = isMeshManaged ? _(`Non-EasyMesh Managed Interfaces`) : null;
+
+				// Render non easy mesh managed interfaces. This will also help in creating new non-mesh managed interface
+				this.renderWifiInterfaces(wirelessMap, device['.name'], filterNonEasyMeshManagedAps, nonEasyMeshManagedTitle);
 			}
 		}
 
 		const diagram = E('morse-config-diagram');
-		this.attachDynamicUpdateHandlers(diagram, this.ethernetPorts, hasWireless ? [networkMap, wirelessMap] : [networkMap]);
+		this.attachDynamicUpdateHandlers(diagram, this.ethernetPorts, wirelessMap ? [networkMap, wirelessMap] : [networkMap]);
 
 		// This is actually a promise, but we can do it along with the render.
 		diagram.updateFrom(uci, this.ethernetPorts);
@@ -492,7 +584,7 @@ return view.extend({
 			]),
 			E('div', { class: 'cbi-section' }, diagram),
 			networkMap.render(),
-			hasWireless ? wirelessMap.render() : [],
+			wirelessMap ? wirelessMap.render() : [],
 		];
 
 		return Promise.all(elements);
@@ -508,6 +600,19 @@ return view.extend({
 			// Only HaLow devices have the static channel map which allows us to see
 			// frequencies from other countries without setting the region of the device.
 			option = section.option(widgets.WifiCountryValue, 'country', _('Country'));
+			option.validate = function (sectionId) {
+				const country = this.getUIElement(sectionId).getValue();
+				if (country == 'EU' || country == 'GB') {
+					if (!L.hasSystemFeature('morsesmartmanager'))
+						return 'Install smart_manager package to use EU/GB';
+
+					const dcs_enabled = uci.get('smart_manager', `${sectionId}_dcs`, 'enabled');
+					if (dcs_enabled && dcs_enabled === '0') {
+						return 'DCS required for EU/GB. Configure under Network → Wireless → Dynamic Channel Selection.';
+					}
+				}
+				return true;
+			};
 			option.onchange = function (ev, sectionId, value) {
 				this.map.lookupOption('_freq', sectionId)[0].toggleS1gCountry(sectionId, value);
 			};
@@ -515,18 +620,22 @@ return view.extend({
 		option = section.option(widgets.WifiFrequencyValue, '_freq', _('Preferred frequency'));
 	},
 
-	renderWifiInterfaces(map, deviceName, options = {}) {
+	renderWifiInterfaces(map, deviceName, filterIface, title, options = {}) {
 		const deviceType = uci.get('wireless', deviceName, 'type');
 		const isMorse = deviceType === 'morse';
-		const section = map.section(form.TableSection, 'wifi-iface');
-		section.filter = sectionId => deviceName === uci.get('wireless', sectionId, 'device');
-		const readOnly = options.readOnly ? options.readOnly : false;
-		if (readOnly) {
-			section.addremove = false;
-		} else {
-			section.addremove = true;
-		}
+		const section = map.section(form.TableSection, 'wifi-iface', title);
+		section.filter = sectionId => (deviceName === uci.get('wireless', sectionId, 'device') && filterIface(sectionId, deviceName));
+		section.addremove = options.addRemove ?? true;
 		section.anonymous = true;
+		const readOnlyFields = Array.isArray(options.readOnlyFields) ? options.readOnlyFields : [];
+
+		// By default, all fields are read/write.
+		// If 'all' is present in readOnlyFields, all fields are set to read-only.
+		// To make specific fields read-only, add their names to the readOnlyFields array.
+		const getReadOnly = (field) => {
+			if (readOnlyFields.includes('all')) return true;
+			return readOnlyFields.includes(field);
+		};
 
 		// If we don't immediately set the correct device, it won't appear in our table
 		// due to the filter. Also, the normal handleAdd saves the current state of the
@@ -556,11 +665,17 @@ return view.extend({
 			// until you mutate it).
 			this.map.data.set(config_name, name, 'network', 'lan');
 
-			// It's safe to simple load/reset here rather than doing
+			// It's safe to simply load/reset here rather than doing
 			// a save since (to support the diagram) we're already putting
 			// everything into the uci cache (i.e. the 'reset' won't lose
 			// any data, _unlike_ hitting the Reset button on the page
 			// which causes a refresh).
+			return this.map.load().then(() => this.map.reset());
+		};
+
+		section.handleRemove = function (section_id, _ev) {
+			const config_name = this.uciconfig || this.map.config;
+			this.map.data.remove(config_name, section_id);
 			return this.map.load().then(() => this.map.reset());
 		};
 
@@ -570,7 +685,7 @@ return view.extend({
 		option.enabled = '0';
 		option.disabled = '1';
 		option.default = '0';
-		option.readonly = readOnly;
+		option.readonly = getReadOnly('disabled');
 
 		option = section.option(form.DummyValue, '_device', _('Device'));
 		option.cfgvalue = (sectionId) => {
@@ -578,12 +693,7 @@ return view.extend({
 		};
 
 		option = section.option(SimpleNetworkSelect, 'network', _('Network'));
-		for (const networkIface of uci.sections('network', 'interface')) {
-			if (isNormalNetworkIface(networkIface)) {
-				option.value(networkIface['.name'], networkIface['.name']);
-			}
-		}
-		option.readonly = readOnly;
+		option.readonly = getReadOnly('network');
 
 		const MODE_TOOLTIP = _(`
 			Change the mode of your Wi-Fi interface. To enable HaLow Wi-Fi extenders, you should select WDS (Wireless Distribution System)
@@ -593,7 +703,7 @@ return view.extend({
 		for (const [k, v] of Object.entries(isMorse ? HALOW_WIFI_MODE_NAMES : WIFI_MODE_NAMES)) {
 			option.value(k, v);
 		}
-		option.readonly = readOnly;
+		option.readonly = getReadOnly('mode');
 		option.onchange = function (ev, sectionId, value, previousValue) {
 			if (previousValue && previousValue.replace('-wds', '') === value.replace('-wds', '')) {
 				// If the only change is WDS, none of the dependent fields are invalidated.
@@ -603,11 +713,12 @@ return view.extend({
 			// Fundamental mode change; existing ssid/encryption/key are not relevant.
 
 			const ssidOption = this.map.lookupOption('ssid', sectionId)[0];
-			if (['sta', 'sta-wds'].includes(value)) {
-				ssidOption.renderUpdate(sectionId, '');
-			} else {
-				ssidOption.renderUpdate(sectionId, morseuci.getDefaultSSID());
-			}
+			const newSSID = ['sta', 'sta-wds'].includes(value) ? '' : morseuci.getDefaultSSID();
+			// We force the write here because the onchange callback may not be triggered
+			// if the SSID is the same, but we need to write if the mode changes
+			// (dangers of having the same widget write to mesh_id/ssid).
+			ssidOption.write(sectionId, newSSID);
+			ssidOption.renderUpdate(sectionId, newSSID);
 
 			const newKey = modeUsesDefaultWifiKey(value) ? morseuci.getDefaultWifiKey() : '';
 			const keyOption = this.map.lookupOption('_wpa_key', sectionId)[0];
@@ -679,16 +790,16 @@ return view.extend({
 			const DPP_TOOLTIP = _('This enables DPP via QRCode for clients (access points automatically support DPP).');
 			option = section.option(form.Flag, 'dpp', E('span', { 'class': 'show-info', 'data-tooltip': DPP_TOOLTIP }, _('DPP')));
 			option.depends({ '!contains': true, 'mode': 'sta' });
-			option.readonly = readOnly;
+			option.readonly = getReadOnly('dpp');
 		}
 
 		option = section.option(morseui.SSIDListScan, 'ssid', _('SSID/Mesh ID'));
 		if (this.hasQRCode && isMorse) {
 			option.depends('dpp', '0');
-			option.depends({ '!reverse': true, 'mode': 'sta' });
+			option.depends({ '!reverse': true, '!contains': true, 'mode': 'sta' });
 		}
-		option.readonly = readOnly;
-		if (readOnly) {
+		option.readonly = getReadOnly('ssid');
+		if (option.readonly) {
 			// If we're in readonly mode, we don't want to block people saving seemingly
 			// 'bad' configurations when they can't fix them.
 			// This happens in practice if you have an EasyMesh config before WPS,
@@ -702,9 +813,11 @@ return view.extend({
 			switch (mode) {
 				case 'mesh':
 					uci.set('wireless', sectionId, 'mesh_id', value);
+					uci.unset('wireless', sectionId, 'ssid');
 					break;
 				default:
 					uci.set('wireless', sectionId, 'ssid', value);
+					uci.unset('wireless', sectionId, 'mesh_id');
 					break;
 			}
 		};
@@ -727,7 +840,7 @@ return view.extend({
 		};
 
 		option = section.option(WifiEncryptionList, 'encryption', _('Encryption'));
-		option.readonly = readOnly;
+		option.readonly = getReadOnly('encryption');
 		if (this.hasQRCode && isMorse) {
 			option.depends({ dpp: '0' });
 			option.depends({ '!reverse': true, '!contains': true, 'mode': 'sta' });
@@ -782,8 +895,8 @@ return view.extend({
 		option.datatype = 'wpakey';
 		option.rmempty = true;
 		option.password = true;
-		option.readonly = readOnly;
-		if (readOnly) {
+		option.readonly = getReadOnly('_wpa_key');
+		if (option.readonly) {
 			// If we're in readonly mode, we don't want to block people saving seemingly
 			// 'bad' configurations when they can't fix them.
 			// This happens in practice if you have an EasyMesh config before WPS,
@@ -808,16 +921,84 @@ return view.extend({
 		};
 	},
 
-	renderNetworkInterfaces(map, hasWireless) {
+	renderNetworkInterfaces(map, wirelessMap) {
 		const section = map.section(form.TableSection, 'interface');
-		// We set this to anonymous so we can render the name ourselves with colour.
-		section.anonymous = true;
+		// anonymous = false would usually render the name for us, but we use CSS (in config.css) to disable
+		// this so we can render the name ourselves (with colour).
+		section.anonymous = false;
 		section.modaltitle = _('Network Interface');
-		section.filter = (sectionId) => {
-			const iface = uci.get('network', sectionId);
-			return iface.disabled !== '1' && iface['.name'] !== 'loopback' && ['dhcp', 'static'].includes(iface['proto']);
-		};
+		section.filter = sectionId => isNormalNetworkIface(uci.get('network', sectionId));
 		section.max_cols = 7;
+		section.addremove = true;
+
+		// If we don't immediately set this up correctly, it won't appear in our table
+		// due to the filter. Also, the normal handleAdd saves the current state of the
+		// form to the backend, which is a bit rude.
+		// So we monkey-patch handleAdd :(
+		section.handleAdd = function (_ev, name) {
+			const config_name = this.uciconfig || this.map.config;
+
+			if (!name) {
+				let offset = 1;
+				do {
+					name = `net${offset++}`;
+				} while (this.map.data.get(config_name, name));
+			} else if (this.map.data.get(config_name, name)) {
+				ui.showModal(_('Network with that name already exists'), [
+					E('p', _('Not adding network since a network of that name exists. Choose another name.')),
+					E('div', { class: 'right' }, [E('button', { class: 'btn cbi-button', click: ui.hideModal }, _('Dismiss'))]),
+				]);
+				return;
+			}
+
+			this.map.data.add(config_name, this.sectiontype, name);
+			this.map.data.set(config_name, name, 'proto', 'dhcp');
+
+			// It's safe to simply load/reset here rather than doing
+			// a save since (to support the diagram) we're already putting
+			// everything into the uci cache (i.e. the 'reset' won't lose
+			// any data, _unlike_ hitting the Reset button on the page
+			// which causes a refresh).
+			// Unfortunately, we also have to ask the wirelessMap to reset to
+			// correctly re-render the network dropdowns.
+			return this.map.load().then(() => {
+				if (wirelessMap) {
+					return Promise.all([wirelessMap.reset(), this.map.reset()]);
+				} else {
+					return this.map.reset();
+				}
+			});
+		};
+
+		section.handleRemove = function (sectionId, _ev) {
+			const config_name = this.uciconfig || this.map.config;
+
+			if (morseuci.getNetworkDevices(sectionId).length + morseuci.getNetworkWifiIfaces(sectionId).length > 0) {
+				// Refuse to remove if devices attached to avoid user error.
+				ui.showModal(_('Cannot remove interface'), [
+					E('p', _('Not removing due to attached ethernet/wireless devices. Remove these before removing interface.')),
+					E('div', { class: 'right' }, [E('button', { class: 'btn cbi-button', click: ui.hideModal }, _('Dismiss'))]),
+				]);
+				return;
+			}
+
+			this.map.data.remove(config_name, sectionId);
+
+			return this.map.load().then(() => {
+				if (wirelessMap) {
+					return Promise.all([wirelessMap.reset(), this.map.reset()]);
+				} else {
+					return this.map.reset();
+				}
+			});
+		};
+
+		section.renderSectionAdd = function (extra_class) {
+			const element = this.super('renderSectionAdd', [extra_class]);
+			const input = element.querySelector('.cbi-section-create-name');
+			input.placeholder = _('New network name to add');
+			return element;
+		};
 
 		let option;
 
@@ -843,13 +1024,6 @@ return view.extend({
 		// We disable the uci refresh for this because otherwise, when people mess around with the element,
 		// we generate spurious forwarding rules that we then have to disable.
 		option.disableUciRefresh = true;
-		for (const networkIface of uci.sections('network', 'interface')) {
-			if (networkIface.disabled === '1' || networkIface['.name'] === 'loopback' || !['dhcp', 'static'].includes(networkIface['proto'])) {
-				continue;
-			}
-
-			option.value(networkIface['.name'], networkIface['.name']);
-		}
 		option.load = (sectionId) => {
 			for (const s of uci.sections('firewall', 'forwarding')) {
 				if (s.enabled !== '0' && s.src === sectionId) {
@@ -874,7 +1048,7 @@ return view.extend({
 			}
 		};
 
-		if (hasWireless) {
+		if (wirelessMap) {
 			option = section.option(morseui.DynamicDummyValue, '_wifi_interfaces', _('Wireless'));
 			option.rawhtml = true;
 			option.cfgvalue = (sectionId) => {

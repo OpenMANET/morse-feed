@@ -13,7 +13,7 @@ fi
 
 board=$(board_name)
 case "$board" in
-	morse,artini)
+	morse,halowlink1)
 		if ! uci -q get luci.main.advancedmodetoggle; then
 			uci set luci.main.advancedmodetoggle='1'
 		fi

@@ -57,8 +57,8 @@ msgstr ""
 #: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:335
 msgid ""
 "After saving a 2.4 GHz Wi-Fi uplink configuration, you will need to connect "
-"to the correct network on on the Home page. Find the Uplink card, click on "
-"the \"Disconnected\" cross, then set the SSID and password."
+"to the correct network on the Home page. Find the Uplink card, click on the "
+"\"Disconnected\" cross, then set the SSID and password."
 msgstr ""
 
 #: luci/luci-app-morseapwizard/htdocs/luci-static/resources/view/morse/morseapwizard.js:429

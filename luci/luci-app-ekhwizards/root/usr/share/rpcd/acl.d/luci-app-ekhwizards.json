@@ -6,16 +6,18 @@
 				"file": [ "read" ],
 				"luci-rpc": ["getNetworkDevices"],
 				"iwinfo": ["scan", "assoclist", "info"]
-			}
+			},
+			"uci": [ "system", "luci", "firewall", "dhcp", "network", "wireless", "mesh11sd", "prplmesh", "matter", "smart_manager" ]
 		},
 		"write": {
 			"file": {
 			},
 			"ubus": {
 				"file": [ "write", "exec" ],
-				"uci": [ "apply", "commit", "delete", "firewall", "dhcp", "network", "wireless" ],
+				"uci": [ "apply", "commit", "delete"],
 				"luci": [ "setPassword" ]
 			}
+			"uci": [ "system", "luci", "firewall", "dhcp", "network", "wireless", "mesh11sd", "prplmesh", "matter", "smart_manager" ]
 		}
 	}
 }

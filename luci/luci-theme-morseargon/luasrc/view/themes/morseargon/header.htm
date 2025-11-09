@@ -30,6 +30,7 @@
 
 	local morse_region = uci_cursor:get("wireless", morse_dev, "country")
 	local morse_bcf = uci_cursor:get("wireless", morse_dev, "bcf")
+	local morse_firmware_type = uci_cursor:get("wireless", morse_dev, "firmware_type")
 	local missing_password = luci.sys.process.info("uid") == 0 and luci.sys.user.getuser("root") and not luci.sys.user.getpasswd("root")
 
 	function is_morse_dev(dev)
@@ -205,6 +206,20 @@
 							<div class="alert-message warning">
 								<h4><%: Region not set! %></h4>
 								<p><%: There is no region set for your morse interface. Please set your region first. %></p>
+							</div>
+						<%- end -%>
+						<%- if morse_dev and morse_firmware_type == "thin_lmac" then -%>
+							<div class="alert-message warning">
+								<h4><%: Morse device using Thin LMAC firmware - only AP mode will work! %></h4>
+								<p><%: Your Morse device is using Thin LMAC firmware, which is an optimisation for AP mode to support large numbers of clients/stations.%></p>
+								<div class="right"><a class="btn" href="<%=url("admin/network/wireless")%>"><%:Go to wireless configuration...%></a></div>
+							</div>
+						<%- end -%>
+						<%- if morse_dev and morse_firmware_type == "fullmac" then -%>
+							<div class="alert-message warning">
+								<h4><%: Morse device using FullMAC firmware - only Client/Station mode will work! %></h4>
+								<p><%: Your Morse device is using FullMAC firmware, which is an optimisation for client/station mode where processing is offloading to the Morse chip. This is useful in highly power constrained situations or if association should be maintained when the host processor is off.%></strong></p>
+								<div class="right"><a class="btn" href="<%=url("admin/network/wireless")%>"><%:Go to wireless configuration...%></a></div>
 							</div>
 						<%- end -%>
 						<%- if missing_password then -%>
