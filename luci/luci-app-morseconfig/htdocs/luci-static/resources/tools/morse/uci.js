@@ -713,4 +713,7 @@ return baseclass.extend({
 	getFirstNetmask,
 	getEthernetPorts,
 	getEthernetStaticIp,
+	getNetworkInterfaces,
+	setupBatmanDeviceOnNetwork,
+	setupBatmanInterfaceOnDevice
 });
