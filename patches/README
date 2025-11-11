@@ -1,0 +1,8 @@
+This folder contains patches that are useful/required
+to be applied to 'standard' OpenWrt for Morse HaLow
+devices to work correctly.
+
+There are three kinds of patches:
+ - linux.add/* are copied to target/linux/generic
+ - mac80211.add/* are copied to package/kernel/mac80211/patches/subsys
+ - all other folders have their patches applied to the tree

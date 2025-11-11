@@ -1,0 +1,33 @@
+From 7524d75b8f9f7146f5f2a6f6648a88f4877cc0b7 Mon Sep 17 00:00:00 2001
+From: Evan Benn <evan.benn@morsemicro.com>
+Date: Thu, 22 Feb 2024 22:40:20 +0000
+Subject: [PATCH] mac80211: hotplug: (APP-2588) (PR #194) ignore morse driver
+ instantiated ieee80211 devices
+
+Look at the name of the driver linked through sysfs to prevent mac80211 detection
+of Morse devices. A separate interface handler is used for Morse Micro devices.
+
+Approved-by: James Haggerty
+Approved-by: Arien Judge
+Approved-by: Sophronia Koilpillai
+---
+ package/kernel/mac80211/files/lib/wifi/mac80211.sh | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/package/kernel/mac80211/files/lib/wifi/mac80211.sh b/package/kernel/mac80211/files/lib/wifi/mac80211.sh
+index e24a2a634e..e4d6b72530 100644
+--- a/package/kernel/mac80211/files/lib/wifi/mac80211.sh
++++ b/package/kernel/mac80211/files/lib/wifi/mac80211.sh
+@@ -156,6 +156,9 @@ detect_mac80211() {
+ 	for _dev in /sys/class/ieee80211/*; do
+ 		[ -e "$_dev" ] || continue
+ 
++		# Skip morse devices.
++		basename "$(readlink -f "$_dev/device/driver/")" | grep '^morse_' && continue
++
+ 		dev="${_dev##*/}"
+ 
+ 		mode_band=""
+-- 
+2.34.1
+

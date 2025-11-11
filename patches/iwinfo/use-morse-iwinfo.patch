@@ -1,0 +1,21 @@
+diff --git a/package/network/utils/iwinfo/Makefile b/package/network/utils/iwinfo/Makefile
+index c6a14956fd..f4d141f922 100644
+--- a/package/network/utils/iwinfo/Makefile
++++ b/package/network/utils/iwinfo/Makefile
+@@ -10,11 +10,11 @@ PKG_NAME:=libiwinfo
+ PKG_RELEASE:=1
+ 
+ PKG_SOURCE_PROTO:=git
+-PKG_SOURCE_URL=$(PROJECT_GIT)/project/iwinfo.git
+-PKG_SOURCE_DATE:=2024-10-20
+-PKG_SOURCE_VERSION:=b94f066e3f5839b8509483cdd8f4f582a45fa233
+-PKG_MIRROR_HASH:=ee0bce167707fe78f68a951b7ee1e0e61a92cae281e0e24eb709857ae849777e
+-PKG_MAINTAINER:=Jo-Philipp Wich <jo@mein.io>
++PKG_SOURCE_URL:=https://github.com/MorseMicro/iwinfo.git
++PKG_SOURCE_DATE:=2024-10-18
++PKG_SOURCE_VERSION:=88de1400de808127891ff9780d09fe56526d504b
++PKG_HASH:=261be17a411c45d29075c2484e25859da5982ab2ecb8049651e79c276a23a319
++PKG_MAINTAINER:=Morse Micro <info@morsemicro.com>
+ PKG_LICENSE:=GPL-2.0
+ 
+ PKG_BUILD_FLAGS:=no-lto
