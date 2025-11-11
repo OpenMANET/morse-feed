@@ -38,7 +38,7 @@ if [ -e feeds.conf ]; then
 	FEED=feeds.conf
 fi
 
-if ! grep -q '^src.* morse ' "$FEED"; then
+if ! grep -q '^src.* morseopenmanet ' "$FEED"; then
 	echo "Make sure to update $FEED before running this script."
 	echo "See $MYDIR/README.md for details."
 	echo
