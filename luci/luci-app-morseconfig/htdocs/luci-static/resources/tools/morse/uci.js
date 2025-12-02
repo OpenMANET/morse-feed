@@ -569,10 +569,12 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 		uci.set('network', sectionId, 'ip6class', ip6class);
 		if (isMeshPoint) {
 			uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
-			uci.set('network', sectionId, 'gateway', '10.41.1.1');
+			// Disable setting gateway, openmanetd handles this now via ip route
+			// uci.set('network', sectionId, 'gateway', '10.41.1.1');
 			uci.set('network', sectionId, 'dns', '1.1.1.1');
 		} else {
-			uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
+			// Disable setting gateway ip address, openmanetd handles this now
+			// uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
 		}
 	}
 
