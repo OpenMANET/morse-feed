@@ -534,9 +534,9 @@ function getRandomIpaddr(ip) {
 		throw new Error(`Invalid IP address: ${ip}`);
 	}
 
-	// We should need to pick a random number for the 3rd octet only.
+	// We should need to pick a random number for the 4th octet only.
 	const randomOctet = Math.floor(Math.random() * 254);
-	const newIp = `${ipParts[0]}.${ipParts[1]}.${randomOctet}.1`;
+	const newIp = `${ipParts[0]}.${ipParts[1]}.254.${randomOctet}`;
 
 	return newIp;
 }
