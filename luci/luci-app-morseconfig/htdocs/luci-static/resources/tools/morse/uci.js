@@ -139,7 +139,7 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.add('dhcp', 'dhcp', proposedName);
 	uci.set('dhcp', proposedName, 'start', randomStart.toString());
 	uci.set('dhcp', proposedName, 'limit', '16');
-	uci.set('dhcp', proposedName, 'leasetime', '12h');
+	uci.set('dhcp', proposedName, 'leasetime', '3m');
 	uci.set('dhcp', proposedName, 'ra', 'server');
 	uci.set('dhcp', proposedName, 'ra_slaac', '1');
 	uci.set('dhcp', proposedName, 'dns_service', '0');

@@ -12,8 +12,8 @@
 'require custom-elements.morse-config-diagram as configDiagram';
 
 const DEFAULT_LAN_IP = '10.40.0.1';
-const DEFAULT_WLAN_IP = '10.41.0.1';
-const ALTERNATE_WLAN_IP = '10.42.0.1';
+const DEFAULT_WLAN_IP = '10.42.0.1';
+const ALTERNATE_WLAN_IP = '10.41.0.1';
 
 const callUciCommit = rpc.declare({
 	object: 'uci',
