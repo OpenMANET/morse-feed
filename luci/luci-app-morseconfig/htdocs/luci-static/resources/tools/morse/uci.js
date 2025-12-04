@@ -139,7 +139,7 @@ function createDhcp(dnsmasqName, networkSectionId) {
 	uci.add('dhcp', 'dhcp', proposedName);
 	uci.set('dhcp', proposedName, 'start', randomStart.toString());
 	uci.set('dhcp', proposedName, 'limit', '16');
-	uci.set('dhcp', proposedName, 'leasetime', '12h');
+	uci.set('dhcp', proposedName, 'leasetime', '3m');
 	uci.set('dhcp', proposedName, 'ra', 'server');
 	uci.set('dhcp', proposedName, 'ra_slaac', '1');
 	uci.set('dhcp', proposedName, 'dns_service', '0');
@@ -534,9 +534,9 @@ function getRandomIpaddr(ip) {
 		throw new Error(`Invalid IP address: ${ip}`);
 	}
 
-	// We should need to pick a random number for the 3rd octet only.
+	// We should need to pick a random number for the 4th octet only.
 	const randomOctet = Math.floor(Math.random() * 254);
-	const newIp = `${ipParts[0]}.${ipParts[1]}.${randomOctet}.1`;
+	const newIp = `${ipParts[0]}.${ipParts[1]}.254.${randomOctet}`;
 
 	return newIp;
 }
@@ -569,10 +569,12 @@ function setupNetworkWithDnsmasq(sectionId, ip, uplink = true, isMeshPoint = tru
 		uci.set('network', sectionId, 'ip6class', ip6class);
 		if (isMeshPoint) {
 			uci.set('network', sectionId, 'ipaddr', getRandomIpaddr(ip));
-			uci.set('network', sectionId, 'gateway', '10.41.1.1');
+			// Disable setting gateway, openmanetd handles this now via ip route
+			// uci.set('network', sectionId, 'gateway', '10.41.1.1');
 			uci.set('network', sectionId, 'dns', '1.1.1.1');
 		} else {
-			uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
+			// Disable setting gateway ip address, openmanetd handles this now
+			// uci.set('network', sectionId, 'ipaddr', '10.41.1.1');
 		}
 	}
 
