@@ -12,8 +12,8 @@
 'require custom-elements.morse-config-diagram as configDiagram';
 
 const DEFAULT_LAN_IP = '10.40.0.1';
-const DEFAULT_WLAN_IP = '10.42.0.1';
-const ALTERNATE_WLAN_IP = '10.41.0.1';
+const DEFAULT_WLAN_IP = '10.41.254.1';
+const ALTERNATE_WLAN_IP = '10.41.254.1';
 
 const callUciCommit = rpc.declare({
 	object: 'uci',
@@ -790,8 +790,8 @@ const AbstractWizardView = view.extend({
 		} else if (originalStaticIp && staticIp && staticIp !== originalStaticIp) {
 			text = _(`
 				The static IPv4 address of this device is changing! It was previously
-				%s, and will now be %s. To access this admin interface, you may need to
-				disconnect and reconnect, then go to the new IP.
+				%s. To access this admin interface, you may need to
+				disconnect and reconnect, then check your new router address from DHCP.
 			`).format(this.getEthernetStaticIpOriginal(), staticIp);
 		} else if (!originalStaticIp && staticIp) {
 			text = _(`
